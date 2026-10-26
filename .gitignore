@@ -1,0 +1,31 @@
+# 展場執行資料（資料庫、觀眾作品、AI 結果）與執行日誌
+data/
+logs/
+
+# 金鑰與本機設定
+.env
+.env.*
+config/*.local.*
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 前端
+node_modules/
+frontend/dist/
+
+# 交付包建置輸出
+Exhibition/
+dist/
+build/
+
+# 編輯器與系統檔
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
