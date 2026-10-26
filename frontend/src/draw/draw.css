@@ -1,0 +1,709 @@
+/* 平板繪圖頁：暫時的後現代主義版面（拼貼色塊、不對稱、粗黑框與錯位陰影）。 */
+
+.draw-app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+.draw-app button {
+  font-family: var(--font-body);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.draw-app img {
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+
+/* ---- 共用按鈕 ---- */
+
+.big-btn {
+  min-height: var(--touch-target);
+  min-width: 160px;
+  padding: 0 28px;
+  border: 3px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 22px;
+  font-weight: 700;
+  box-shadow: 6px 6px 0 var(--color-ink);
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out);
+}
+
+.big-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 2px 2px 0 var(--color-ink);
+}
+
+.big-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.big-btn--primary {
+  background: var(--color-accent-2);
+  color: var(--color-paper);
+}
+
+.big-btn--danger {
+  background: var(--color-accent-1);
+  color: var(--color-paper);
+}
+
+/* ---- 拼貼背景 ---- */
+
+.collage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.collage-block {
+  position: absolute;
+  display: block;
+}
+
+.collage-block--a {
+  width: 34vmin;
+  height: 34vmin;
+  left: -6vmin;
+  bottom: -8vmin;
+  border-radius: 50%;
+  background: var(--color-accent-3);
+}
+
+.collage-block--b {
+  width: 46vmin;
+  height: 18vmin;
+  right: 8vmin;
+  top: 14vmin;
+  background: var(--color-accent-2);
+  transform: rotate(-8deg);
+}
+
+.collage-block--c {
+  width: 22vmin;
+  height: 60vmin;
+  right: -4vmin;
+  bottom: -10vmin;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-ink) 0 6px,
+    transparent 6px 18px
+  );
+}
+
+.collage-block--d {
+  width: 16vmin;
+  height: 16vmin;
+  left: 38vw;
+  top: -5vmin;
+  background: var(--color-accent-1);
+  transform: rotate(18deg);
+}
+
+.collage-artwork {
+  position: absolute;
+  right: 12vmin;
+  bottom: 12vmin;
+  width: 40vw;
+  max-height: 48vh;
+  object-fit: contain;
+  background: var(--color-paper);
+  border: 4px solid var(--color-ink);
+  box-shadow: 14px 14px 0 var(--color-accent-4);
+  transform: rotate(4deg);
+  opacity: 0.85;
+}
+
+/* ---- 載入 ---- */
+
+.boot-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.boot-screen h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 64px;
+  letter-spacing: 0.08em;
+}
+
+.boot-screen h1 span {
+  color: var(--color-accent-3);
+}
+
+.boot-screen p {
+  margin: 0;
+  font-size: 22px;
+}
+
+/* ---- 待機 ---- */
+
+.standby-screen {
+  position: absolute;
+  inset: 0;
+}
+
+.standby-content {
+  position: absolute;
+  left: 7vw;
+  top: 12vh;
+  max-width: 52vw;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.standby-title {
+  margin: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+.standby-title-main {
+  padding: 14px 22px 18px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: clamp(56px, 9vw, 120px);
+  letter-spacing: 0.06em;
+  transform: rotate(-2deg);
+}
+
+.standby-title-aside {
+  padding: 6px 12px;
+  background: var(--color-accent-3);
+  border: 3px solid var(--color-ink);
+  font-size: clamp(36px, 5vw, 64px);
+  transform: rotate(6deg) translateY(10px);
+}
+
+.standby-lead {
+  margin: 8px 0 0;
+  padding: 10px 14px;
+  background: var(--color-paper);
+  border-left: 10px solid var(--color-accent-1);
+  font-size: clamp(20px, 2.2vw, 28px);
+  line-height: 1.5;
+}
+
+.standby-lead--minor {
+  margin-top: 0;
+  border-left-color: var(--color-accent-2);
+  font-size: clamp(18px, 1.8vw, 24px);
+}
+
+.start-btn {
+  margin-top: 24px;
+  min-width: 320px;
+  min-height: 112px;
+  padding: 0 48px;
+  border: 5px solid var(--color-ink);
+  border-radius: 0;
+  background: var(--color-accent-1);
+  color: var(--color-paper);
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  box-shadow: 12px 12px 0 var(--color-ink);
+  transform: rotate(-1.5deg);
+  transition: transform 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+}
+
+.start-btn:active:not(:disabled) {
+  transform: rotate(-1.5deg) translate(8px, 8px);
+  box-shadow: 4px 4px 0 var(--color-ink);
+}
+
+.start-btn:disabled {
+  background: var(--color-muted);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.standby-status {
+  margin: 4px 0 0;
+  padding: 8px 14px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 22px;
+}
+
+/* ---- 作畫 ---- */
+
+.drawing-screen {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0 70%, rgba(31, 91, 255, 0.08) 70% 100%),
+    var(--color-surface);
+}
+
+.drawing-header {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 16px;
+}
+
+.drawing-title {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: 900;
+}
+
+.drawing-title span:first-child {
+  padding: 4px 10px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 26px;
+}
+
+.drawing-title span:last-child {
+  padding: 2px 6px;
+  background: var(--color-accent-3);
+  border: 2px solid var(--color-ink);
+  font-size: 18px;
+  transform: rotate(8deg);
+}
+
+.countdown {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.countdown-label {
+  padding: 4px 10px;
+  border: 2px solid var(--color-ink);
+  background: var(--color-paper);
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.countdown-number {
+  min-width: 4ch;
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown-number small {
+  margin-left: 4px;
+  font-family: var(--font-body);
+  font-size: 20px;
+}
+
+.countdown-bar {
+  position: relative;
+  width: clamp(120px, 24vw, 360px);
+  height: 18px;
+  border: 3px solid var(--color-ink);
+  background: var(--color-paper);
+  overflow: hidden;
+}
+
+.countdown-bar span {
+  position: absolute;
+  inset: 0;
+  background: var(--color-accent-2);
+  transform-origin: left center;
+  transition: transform 100ms linear;
+}
+
+/* 最後 10 秒：文字改為「即將自動送出」、數字加框，不只靠顏色 */
+.countdown.is-urgent .countdown-label {
+  background: var(--color-accent-1);
+  color: var(--color-paper);
+}
+
+.countdown.is-urgent .countdown-number {
+  padding: 2px 10px;
+  border: 4px solid var(--color-ink);
+  background: var(--color-accent-3);
+}
+
+.countdown.is-urgent .countdown-bar span {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-accent-1) 0 8px,
+    var(--color-ink) 8px 12px
+  );
+}
+
+.countdown.is-stopped .countdown-bar span {
+  background: var(--color-muted);
+}
+
+.stage {
+  position: absolute;
+  background: var(--color-paper);
+  outline: 4px solid var(--color-ink);
+  box-shadow: 14px 14px 0 var(--color-accent-3);
+  overflow: hidden;
+}
+
+.stage-reference,
+.stage-strokes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.stage-reference {
+  object-fit: contain;
+}
+
+.stage-strokes {
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.stage-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.stage-lock p {
+  margin: 0;
+  padding: 14px 24px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 28px;
+  font-weight: 700;
+  box-shadow: 8px 8px 0 var(--color-accent-1);
+}
+
+/* ---- 工具列 ---- */
+
+.toolbar {
+  position: absolute;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: var(--color-paper);
+  border: 3px solid var(--color-ink);
+  box-shadow: 8px 8px 0 var(--color-ink);
+}
+
+.toolbar--side {
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toolbar--bottom {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+}
+
+.toolbar-group {
+  display: grid;
+  gap: 6px;
+}
+
+.toolbar--side .toolbar-group {
+  grid-template-columns: repeat(3, var(--touch-target));
+}
+
+.toolbar--side .toolbar-group--tools {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.toolbar--bottom .toolbar-group {
+  grid-auto-flow: column;
+  grid-auto-columns: var(--touch-target);
+}
+
+.toolbar--bottom .toolbar-group--tools {
+  grid-auto-columns: 84px;
+}
+
+.tool-btn,
+.size-btn,
+.swatch-btn {
+  position: relative;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  padding: 4px;
+  border: 2px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tool-btn:disabled,
+.size-btn:disabled,
+.swatch-btn:disabled {
+  opacity: 0.35;
+}
+
+.tool-btn.is-active,
+.size-btn.is-active {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.size-dot {
+  display: block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.swatch-chip {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--color-ink);
+}
+
+/* 選取的顏色：粗外框加上勾號，不只靠顏色 */
+.swatch-btn.is-active {
+  outline: 4px solid var(--color-ink);
+  outline-offset: -2px;
+}
+
+.swatch-btn.is-active::after {
+  content: '✓';
+  position: absolute;
+  right: 2px;
+  bottom: 0;
+  padding: 0 3px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.submit-btn {
+  min-height: 80px;
+  min-width: 140px;
+  padding: 0 20px;
+  border: 4px solid var(--color-ink);
+  border-radius: 0;
+  background: var(--color-accent-1);
+  color: var(--color-paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  box-shadow: 6px 6px 0 var(--color-ink);
+}
+
+.toolbar--side .submit-btn {
+  margin-top: auto;
+}
+
+.submit-btn:disabled {
+  background: var(--color-muted);
+  box-shadow: none;
+}
+
+.submit-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 2px 2px 0 var(--color-ink);
+}
+
+/* ---- 確認視窗 ---- */
+
+.confirm-backdrop,
+.maintenance-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 17, 17, 0.55);
+}
+
+.confirm-backdrop {
+  z-index: 50;
+}
+
+.confirm-card,
+.maintenance-panel {
+  max-width: min(640px, 92vw);
+  padding: 28px 32px;
+  background: var(--color-paper);
+  border: 4px solid var(--color-ink);
+  box-shadow: 14px 14px 0 var(--color-accent-2);
+}
+
+.confirm-card h2,
+.maintenance-panel h2 {
+  margin: 0 0 8px;
+  font-size: 34px;
+}
+
+.confirm-card p {
+  margin: 0 0 24px;
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+.confirm-actions,
+.maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+/* ---- 換場 ---- */
+
+.turnaround-screen {
+  position: absolute;
+  inset: 0;
+  background: var(--color-surface);
+}
+
+.turnaround-card {
+  position: absolute;
+  left: 10vw;
+  top: 18vh;
+  max-width: 70vw;
+  padding: 36px 44px;
+  background: var(--color-paper);
+  border: 5px solid var(--color-ink);
+  box-shadow: 18px 18px 0 var(--color-accent-1);
+  transform: rotate(-1deg);
+}
+
+.turnaround-card h1 {
+  margin: 0 0 14px;
+  font-family: var(--font-display);
+  font-size: clamp(40px, 5vw, 64px);
+}
+
+.turnaround-body {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.5;
+}
+
+.turnaround-queue {
+  display: inline-block;
+  margin: 22px 0 0;
+  padding: 10px 18px;
+  background: var(--color-accent-3);
+  border: 3px solid var(--color-ink);
+  font-size: 30px;
+  font-weight: 900;
+}
+
+.turnaround-next {
+  margin: 28px 0 0;
+  font-size: 22px;
+}
+
+.turnaround-next strong {
+  font-family: var(--font-mono);
+  font-size: 32px;
+}
+
+/* ---- 連線與維護 ---- */
+
+.offline-banner {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 40;
+  padding: 10px 16px;
+  background: var(--color-danger);
+  color: var(--color-paper);
+  border: 3px solid var(--color-ink);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* 右上角不可見熱區，與畫布、工具列都不重疊 */
+.hotzone {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 60;
+  width: 80px;
+  height: 80px;
+  background: transparent;
+  touch-action: manipulation;
+}
+
+.maintenance-backdrop {
+  z-index: 100;
+}
+
+.maintenance-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 18px;
+  margin: 0 0 18px;
+  font-size: 18px;
+}
+
+.maintenance-info dt {
+  font-weight: 700;
+}
+
+.maintenance-info dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.maintenance-message {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  background: var(--color-accent-3);
+  border: 2px solid var(--color-ink);
+  font-size: 18px;
+}
+
+.maintenance-note {
+  margin: 18px 0 0;
+  color: var(--color-muted);
+  font-size: 16px;
+}

@@ -1,0 +1,2 @@
+# BAT 必須維持 CRLF，否則 goto 與標籤可能失效
+*.bat text eol=crlf

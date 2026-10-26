@@ -1,0 +1,45 @@
+/*
+ * 暫時視覺 token（Postmodernism 方向的佔位值）；視覺定稿後只需替換這裡。
+ * 不載入外部字型或 CDN，展場離線也能顯示。
+ */
+:root {
+  --color-paper: #ffffff;
+  --color-ink: #111111;
+  --color-night: #000000;
+  --color-accent-1: #ff3b6b; /* 洋紅 */
+  --color-accent-2: #1f5bff; /* 鈷藍 */
+  --color-accent-3: #ffd400; /* 鉻黃 */
+  --color-accent-4: #00b38a; /* 薄荷綠 */
+  --color-muted: #8a8a8a;
+  --color-surface: #f2efe9;
+  --color-danger: #d7263d;
+
+  --font-display: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', system-ui, sans-serif;
+  --font-body: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 10px;
+  --touch-target: 64px; /* 平板手指操作的最小命中尺寸 */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+}

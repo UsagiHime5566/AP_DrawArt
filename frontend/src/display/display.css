@@ -1,0 +1,317 @@
+/* 展示頁：全螢幕、無游標、不可選取或捲動；補邊一律黑色。 */
+
+html,
+body {
+  background: var(--color-night);
+  overflow: hidden;
+  cursor: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.display {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-night);
+}
+
+/* ---------- 作品畫面與整組轉場 ---------- */
+
+.stage,
+.stage__layer {
+  position: absolute;
+  inset: 0;
+}
+
+.stage__layer {
+  animation: layer-fade-in 700ms var(--ease-out) both;
+}
+
+@keyframes layer-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fit,
+.blank {
+  position: absolute;
+  inset: 0;
+  background: var(--color-night);
+}
+
+.fit__image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  -webkit-user-drag: none;
+}
+
+/* ---------- AI 失敗卡 ---------- */
+
+.failure {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-night);
+}
+
+.failure__text {
+  margin: 0;
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4.2vw, 88px);
+  font-weight: 300;
+  letter-spacing: 0.32em;
+  padding-left: 0.32em; /* 抵銷字距造成的視覺偏移 */
+}
+
+/* ---------- 待機構圖（暫時視覺） ---------- */
+
+.standby {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.standby__shape {
+  position: absolute;
+  display: block;
+}
+
+.standby__shape--circle {
+  width: 34vw;
+  height: 34vw;
+  border-radius: 50%;
+  background: var(--color-accent-1);
+  top: -9vw;
+  right: 8vw;
+  mix-blend-mode: multiply;
+}
+
+.standby__shape--slab {
+  width: 40vw;
+  height: 22vw;
+  background: var(--color-accent-2);
+  bottom: 6vw;
+  left: -6vw;
+  transform: rotate(-8deg);
+  mix-blend-mode: multiply;
+}
+
+.standby__shape--stripe {
+  width: 120vw;
+  height: 3.2vw;
+  background: var(--color-accent-3);
+  top: 58%;
+  left: -10vw;
+  transform: rotate(4deg);
+}
+
+.standby__shape--grid {
+  inset: 0;
+  background-image:
+    linear-gradient(var(--color-ink) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-ink) 1px, transparent 1px);
+  background-size: 6vw 6vw;
+  opacity: 0.06;
+}
+
+.standby--ai .standby__shape--circle {
+  background: var(--color-accent-4);
+  right: auto;
+  left: 10vw;
+  top: auto;
+  bottom: -12vw;
+}
+
+.standby--ai .standby__shape--slab {
+  background: var(--color-accent-1);
+  left: auto;
+  right: -4vw;
+  top: 8vw;
+  bottom: auto;
+  transform: rotate(10deg);
+}
+
+.standby__copy {
+  position: absolute;
+  left: 8vw;
+  bottom: 12vw;
+  color: var(--color-ink);
+}
+
+.standby--ai .standby__copy {
+  left: auto;
+  right: 8vw;
+  text-align: right;
+}
+
+.standby__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13vw;
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+}
+
+.standby__caption {
+  margin: 1.6vw 0 0;
+  font-size: 1.5vw;
+  letter-spacing: 0.24em;
+}
+
+/* ---------- 中螢幕生成進度提示 ---------- */
+
+.progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms var(--ease-out);
+}
+
+.progress--running {
+  opacity: 1;
+}
+
+.progress--finishing {
+  opacity: 0;
+  transition: opacity 600ms var(--ease-out) 400ms;
+}
+
+.progress__label {
+  display: flex;
+  gap: 1.4em;
+  align-items: baseline;
+  padding: 0 0 18px 32px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.progress__queue {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.progress__track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.progress__bar {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.72);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.progress--finishing .progress__bar {
+  transform: scaleX(1) !important;
+  transition: transform 400ms var(--ease-out);
+}
+
+.progress__sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 22%;
+  background: rgba(255, 255, 255, 0.72);
+  opacity: 0;
+}
+
+.progress--indeterminate .progress__bar {
+  opacity: 0;
+}
+
+.progress--indeterminate .progress__sweep {
+  opacity: 1;
+  animation: progress-sweep 3.2s ease-in-out infinite alternate;
+}
+
+@keyframes progress-sweep {
+  from {
+    left: 0;
+  }
+  to {
+    left: 78%;
+  }
+}
+
+/* 結束時一律補滿進度條再淡出（含不定進度狀態） */
+.progress--finishing .progress__bar {
+  opacity: 1;
+}
+
+.progress--finishing .progress__sweep {
+  opacity: 0;
+  animation: none;
+}
+
+/* ---------- 首次設定提示 ---------- */
+
+.setup {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.setup__card {
+  max-width: 60vw;
+  padding: 3vw 3.6vw;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border-left: 1.2vw solid var(--color-accent-3);
+}
+
+.setup__eyebrow {
+  margin: 0;
+  font-size: 1.2vw;
+  letter-spacing: 0.3em;
+  color: var(--color-accent-1);
+}
+
+.setup__title {
+  margin: 0.6vw 0 1.2vw;
+  font-size: 3vw;
+}
+
+.setup__body {
+  margin: 0;
+  font-size: 1.4vw;
+}
+
+.setup__urls {
+  margin: 1vw 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 1.8vw;
+}
+
+.unknown-role {
+  margin: 0;
+  padding: 24px;
+  color: var(--color-muted);
+  background: var(--color-night);
+}

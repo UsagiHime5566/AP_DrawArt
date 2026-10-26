@@ -1,0 +1,11 @@
+# 後端執行環境（開發時安裝於 Miniconda agent-use-latest，Python 3.14）
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+pillow==12.3.0
+openai==3.39.0
+psutil==7.2.2
+httpx==0.28.1
+
+# 測試
+pytest==9.1.1

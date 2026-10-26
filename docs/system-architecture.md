@@ -592,6 +592,8 @@ Exhibition/
 
 ## 7. 介面草案
 
+下表為架構層級的草案；實作時的完整介面、請求與回應格式以 [implementation-contract.md](implementation-contract.md) 為準。
+
 | 介面 | 用途 |
 | --- | --- |
 | `GET /api/config` | 平板取得目前可公開的展覽設定與底圖資料，不含金鑰。 |
