@@ -240,6 +240,7 @@ def payload(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, 
     available = sessions.next_session_available_at(conn)
     active = sessions.get_active_row(conn)
     connected = _alive(view, now)
+    _, current = settings.get_current(conn)
     return {
         "server_now": to_iso(now), "revision": view["revision"],
         "mode": view["mode"], "stage": view["stage"], "kind": view["kind"],
@@ -251,6 +252,8 @@ def payload(conn: sqlite3.Connection, now: datetime | None = None) -> dict[str, 
         "image_url": url, "failure_text": failure_text, "artwork": artwork,
         "started_at": view["started_at"],
         "seconds": view["durations"][STAGES.index(view["stage"])],
+        # 輪播換段的淡入秒數即時生效；展覽頁淡入完成才回報 presented，每段仍完整顯示滿秒數
+        "fade_seconds": current["fade_seconds"],
         "waiting_for_ai": bool(item and view["stage"] == "visitor" and item["result_kind"] is None),
         "next_session_available_at": available,
         "progress": snapshots.progress(conn),

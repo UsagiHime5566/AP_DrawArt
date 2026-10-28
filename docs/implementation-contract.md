@@ -25,7 +25,7 @@
 
 | 方法與路徑 | 說明 |
 | --- | --- |
-| `GET /api/exhibition` | 推進一次狀態並回傳：`revision, mode, stage, kind, can_start, locked, connected, session_id, submission_id, playback_item_id, receipt_order, image_url, failure_text, artwork, started_at, seconds, waiting_for_ai, next_session_available_at, progress` |
+| `GET /api/exhibition` | 推進一次狀態並回傳：`revision, mode, stage, kind, can_start, locked, connected, session_id, submission_id, playback_item_id, receipt_order, image_url, failure_text, artwork, started_at, seconds, fade_seconds, waiting_for_ai, next_session_available_at, progress` |
 | `POST /api/exhibition/presented` | `{revision, client_id, visible}`：圖片已載入並實際顯示；也當作每 2 秒的心跳。版本不符時忽略；另一個視窗仍在線時回 409 `display_in_use` |
 | `POST /api/sessions` | 一般輪播中的筆尖接觸才呼叫；本人首播未完成時回 409 `exhibition_locked` |
 | `POST /api/admin/exhibition/stop?source=admin\|escape` | 暫停接待並要求啟動器結束；`escape` 為展覽頁五秒內五次 Esc。這次暫停記在 `runtime_state.intake_paused_for_stop`，下次 Web 啟動時自動恢復接待；結束前工作人員已手動暫停的則維持暫停 |
@@ -35,13 +35,14 @@
 - 一般輪播：先播尚未完成首播的舊作品（`premiere`），沒有時循環最近 K 件已播作品（`history`），每件「觀眾 → AI → 原圖」。
 - 筆尖接觸（`pointerType` 為 `pen`，開發時允許滑鼠左鍵）才開始；懸停與移動不觸發。喚醒的那一下不留筆跡。
 - 送出非空白作品後立即進入 `personal`：觀眾段至少滿秒數且 AI 有結果才換段，三段都實際顯示滿秒數才解鎖。解鎖時筆尖仍按著不會開新場。
+- 換段時新畫面疊在舊畫面上淡入 `fade_seconds`（`GET /api/exhibition` 回傳，修改後下一次輪詢即生效），完成後才移除舊畫面；畫面內容相同時（例如中斷後重計）不淡入，作畫結束後的第一個畫面從黑畫面淡入。淡入完成前不回報 `presented`，所以每段完整顯示滿秒數，每段實際停留約為淡入秒數加段落秒數。
 - 每段以 `presented` 回報開始計時；超過 8 秒沒有回報或回報不可見時，該段記為 `interrupted` 並從頭重計。
 - 空白、放棄與磁碟捨棄場次回到一般輪播，保留 v1.0 的例外換場秒數（`turnaround_seconds`）。
 - 第一次以 v2.0 開啟已有作品的舊資料庫時，先備份到 `data/backups/before-v2-*.sqlite3`。
 
 ### 0.4 設定
 
-`settings` 新增 `visitor_seconds`、`ai_seconds`、`artist_seconds`（預設各 10，1–600）與 `gallery_limit`（K，預設 10，1–1000）。`display_min_seconds` 只供舊流程使用。
+`settings` 新增 `visitor_seconds`、`ai_seconds`、`artist_seconds`（預設各 10，1–600）、`gallery_limit`（K，預設 10，1–1000）與 `fade_seconds`（換段淡入，預設 1.0，0–10，四捨五入到小數一位；0 為直接切換）。`display_min_seconds` 只供舊流程使用。
 
 ### 0.5 五秒內連按五次 Esc 結束展覽
 

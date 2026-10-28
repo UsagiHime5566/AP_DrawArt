@@ -11,6 +11,10 @@
 .exhibition-app--drawing { cursor: crosshair; }
 .exhibition-stage { position: absolute; inset: 0; display: grid; place-items: center; background: #000; }
 .exhibition-stage--preview { background: #fff; z-index: 20; }
+/* 換段淡入：新畫面疊在舊畫面上由透明變為不透明，完成後才移除舊畫面 */
+.exhibition-layer { position: absolute; inset: 0; display: grid; place-items: center; background: #000; }
+.exhibition-layer--in { animation-name: exhibition-fade-in; animation-timing-function: ease-in-out; animation-fill-mode: both; }
+@keyframes exhibition-fade-in { from { opacity: 0; } to { opacity: 1; } }
 .exhibition-image { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .exhibition-silence { color: #fff; font-size: clamp(32px, 4.2vw, 88px); font-weight: 300; letter-spacing: .28em; }
 .exhibition-loading { color: #fff; font-size: 5vw; }

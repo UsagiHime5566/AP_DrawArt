@@ -146,6 +146,7 @@ export interface AdminSettings {
   ai_seconds: number;
   artist_seconds: number;
   gallery_limit: number;
+  fade_seconds: number;
   reference_opacity: number;
   ai_model: string;
   ai_prompt: string;

@@ -29,7 +29,22 @@ export function App() {
   const saveDraft = useRef<() => Promise<void>>(async () => {});
   const clientId = useRef(sessionStorage.getItem('exhibition-client') ?? randomId());
   const finishAt = useRef(0);
+  // 換段淡入：from 為淡出前的畫面（null 表示從黑畫面淡入）；淡入完成前不回報「已顯示」
+  const [fade, setFade] = useState<{ from: ExhibitionState | null; ms: number; key: string } | null>(null);
+  const shownRef = useRef<ExhibitionState | null>(null);
+  const fadeUntil = useRef(0);
   viewRef.current = view;
+
+  const present = (next: ExhibitionState) => {
+    const previous = shownRef.current;
+    shownRef.current = next;
+    setShown(next);
+    const ms = Math.max(0, (next.fade_seconds ?? 0) * 1000);
+    if (ms > 0 && contentKey(previous) !== contentKey(next)) {
+      fadeUntil.current = performance.now() + ms;
+      setFade({ from: previous, ms, key: contentKey(next) });
+    }
+  };
 
   const finishDrawing = (_session: SessionView | null) => {
     drawingRef.current = false;
@@ -89,7 +104,7 @@ export function App() {
       while (!cancelled) {
         try {
           if (candidate.image_url) await preloadImage(candidate.image_url);
-          if (!cancelled) setShown(candidate);
+          if (!cancelled) present(candidate);
           return;
         } catch {
           setNotice('畫面正在重新連結⋯');
@@ -100,19 +115,41 @@ export function App() {
     return () => { cancelled = true; };
   }, [displayKey, drawing]);
 
+  // 淡入結束後移除淡出的舊畫面
+  useEffect(() => {
+    if (!fade) return undefined;
+    const timer = window.setTimeout(() => setFade(null), fade.ms);
+    return () => window.clearTimeout(timer);
+  }, [fade]);
+
+  // 作畫期間不顯示輪播；結束後的第一個畫面從黑畫面淡入，不會閃回作畫前的舊圖
+  useEffect(() => {
+    if (!drawing) return;
+    shownRef.current = null;
+    setShown(null);
+    setFade(null);
+  }, [drawing]);
+
   useEffect(() => {
     if (!shown || drawing || preview) return undefined;
     const report = () => {
+      const visible = document.visibilityState === 'visible';
+      // 淡入完成才算開始顯示，每段才會完整停留滿設定秒數
+      if (visible && performance.now() < fadeUntil.current) return;
       void apiPost('/api/exhibition/presented', {
         revision: shown.revision,
         client_id: clientId.current,
-        visible: document.visibilityState === 'visible',
+        visible,
       }).catch(() => {});
     };
-    const frame = requestAnimationFrame(() => requestAnimationFrame(report));
+    let frame = 0;
+    const start = window.setTimeout(() => {
+      frame = requestAnimationFrame(() => requestAnimationFrame(report));
+    }, Math.max(0, fadeUntil.current - performance.now()));
     const timer = window.setInterval(report, 2000);
     document.addEventListener('visibilitychange', report);
     return () => {
+      window.clearTimeout(start);
       cancelAnimationFrame(frame);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', report);
@@ -201,24 +238,21 @@ export function App() {
         <section className={`exhibition-stage${preview ? ' exhibition-stage--preview' : ''}`}>
           {preview ? (
             <img src={preview} className="exhibition-image" alt="你的畫作" />
-          ) : state?.failure_text ? (
-            <p className="exhibition-silence">{state.failure_text}</p>
-          ) : state?.image_url ? (
-            <img key={state.image_url} src={state.image_url} className="exhibition-image" alt={LABELS[state.stage]} />
-          ) : <div className="exhibition-loading">人工對畫<span>(話)</span></div>}
-
-          {!preview && !state?.playback_item_id && (
-            <div className="exhibition-invitation">
-              <span className="exhibition-mark" aria-hidden="true" />
-              <h1>人工對畫<span>(話)</span></h1>
-              <p>讓筆尖落下，開始一場對話。</p>
-            </div>
-          )}
-          {!preview && state?.playback_item_id && (
-            <div className="exhibition-caption">
-              <span>{LABELS[state.stage]}</span>
-              <span>{view?.locked ? '讓這一輪對話，完整落下。' : '觸筆，加入對話。'}</span>
-            </div>
+          ) : (
+            <>
+              {fade?.from && (
+                <div className="exhibition-layer">
+                  <StageContent state={fade.from} locked={Boolean(view?.locked)} />
+                </div>
+              )}
+              <div
+                key={contentKey(state)}
+                className={`exhibition-layer${fade?.key === contentKey(state) ? ' exhibition-layer--in' : ''}`}
+                style={fade?.key === contentKey(state) ? { animationDuration: `${fade.ms}ms` } : undefined}
+              >
+                <StageContent state={state} locked={Boolean(view?.locked)} />
+              </div>
+            </>
           )}
           <ProgressOverlay progress={progress} />
           {/* 排在其他作品之後、尚未開始生成時，進度條不出現，仍保留文字提示 */}
@@ -235,5 +269,39 @@ export function App() {
       )}
       {stopping && <div className="exhibition-ending" role="status">對話暫歇。</div>}
     </main>
+  );
+}
+
+/** 畫面內容相同（同一張圖或同一段文字）時不淡入，只有真的換畫面才淡入。 */
+function contentKey(state: ExhibitionState | null): string {
+  if (!state) return 'none';
+  const content = state.failure_text ?? state.image_url ?? 'idle';
+  return `${state.playback_item_id ?? 'idle'}:${state.stage}:${content}`;
+}
+
+function StageContent(props: { state: ExhibitionState | null; locked: boolean }) {
+  const { state, locked } = props;
+  return (
+    <>
+      {state?.failure_text ? (
+        <p className="exhibition-silence">{state.failure_text}</p>
+      ) : state?.image_url ? (
+        <img src={state.image_url} className="exhibition-image" alt={LABELS[state.stage]} />
+      ) : <div className="exhibition-loading">人工對畫<span>(話)</span></div>}
+
+      {!state?.playback_item_id && (
+        <div className="exhibition-invitation">
+          <span className="exhibition-mark" aria-hidden="true" />
+          <h1>人工對畫<span>(話)</span></h1>
+          <p>讓筆尖落下，開始一場對話。</p>
+        </div>
+      )}
+      {state?.playback_item_id && (
+        <div className="exhibition-caption">
+          <span>{LABELS[state.stage]}</span>
+          <span>{locked ? '讓這一輪對話，完整落下。' : '觸筆，加入對話。'}</span>
+        </div>
+      )}
+    </>
   );
 }

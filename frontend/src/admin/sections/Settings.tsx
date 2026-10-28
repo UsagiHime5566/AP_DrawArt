@@ -14,7 +14,7 @@ interface FieldSpec {
   label: string;
   help: string;
   unit?: string;
-  kind: 'int' | 'percent' | 'model' | 'quality' | 'size' | 'prompt';
+  kind: 'int' | 'decimal' | 'percent' | 'model' | 'quality' | 'size' | 'prompt';
   min?: number;
   max?: number;
 }
@@ -25,6 +25,7 @@ const FIELDS: FieldSpec[] = [
   { key: 'visitor_seconds', label: '觀眾作品展示', unit: '秒', kind: 'int', min: 1, max: 600, help: 'AI 未就緒時延長停留在本人作品。' },
   { key: 'ai_seconds', label: 'AI 圖片展示', unit: '秒', kind: 'int', min: 1, max: 600, help: 'AI 成功圖片與失敗文字版使用相同時間。' },
   { key: 'artist_seconds', label: '藝術家原圖展示', unit: '秒', kind: 'int', min: 1, max: 600, help: '本人原圖段播完，才開放下一位觸筆。' },
+  { key: 'fade_seconds', label: '換段淡入', unit: '秒', kind: 'decimal', min: 0, max: 10, help: '觀眾、AI、原圖與下一件之間以淡入切換，可到小數一位；0 為直接切換。淡入完成才開始計算每段秒數。' },
   { key: 'gallery_limit', label: '最近輪播作品數', unit: '件', kind: 'int', min: 1, max: 1000, help: '只影響歷史重播，不刪除本地作品、不取消首播。' },
   { key: 'reference_opacity', label: '參考圖不透明度', unit: '%', kind: 'percent', min: 0, max: 100, help: '只影響作畫底圖，輪播原圖固定 100%。' },
   { key: 'ai_model', label: '圖片模型', kind: 'model', help: '已開啟的場次與排隊中的作品沿用原設定。' },
@@ -48,6 +49,7 @@ function toForm(settings: AdminSettings): FormValues {
     ai_seconds: String(settings.ai_seconds),
     artist_seconds: String(settings.artist_seconds),
     gallery_limit: String(settings.gallery_limit),
+    fade_seconds: String(settings.fade_seconds),
     reference_opacity: String(Math.round(settings.reference_opacity * 100)),
     ai_model: settings.ai_model,
     ai_prompt: settings.ai_prompt,
@@ -59,9 +61,10 @@ function toForm(settings: AdminSettings): FormValues {
 
 function parseField(spec: FieldSpec, raw: string): { value?: unknown; error?: string } {
   const text = raw.trim();
-  if (spec.kind === 'int' || spec.kind === 'percent') {
-    if (!/^\d+$/.test(text)) {
-      return { error: '請輸入整數' };
+  if (spec.kind === 'int' || spec.kind === 'percent' || spec.kind === 'decimal') {
+    const pattern = spec.kind === 'decimal' ? /^\d+(\.\d)?$/ : /^\d+$/;
+    if (!pattern.test(text)) {
+      return { error: spec.kind === 'decimal' ? '請輸入數字（最多小數一位）' : '請輸入整數' };
     }
     const number = Number(text);
     if ((spec.min !== undefined && number < spec.min) || (spec.max !== undefined && number > spec.max)) {
@@ -243,10 +246,10 @@ export function Settings(props: { overviewVersionId: number | null; onSaved: () 
                   <input
                     id={id}
                     type="number"
-                    inputMode="numeric"
+                    inputMode={spec.kind === 'decimal' ? 'decimal' : 'numeric'}
                     min={spec.min}
                     max={spec.max}
-                    step={1}
+                    step={spec.kind === 'decimal' ? 0.1 : 1}
                     value={form[spec.key]}
                     onChange={(event) => update(spec.key, event.target.value)}
                   />

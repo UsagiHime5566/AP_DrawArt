@@ -32,6 +32,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ai_seconds": 10,
     "artist_seconds": 10,
     "gallery_limit": 10,
+    "fade_seconds": 1.0,
     "reference_opacity": 0.3,
     "ai_model": "gpt-image-2.5-sunburst",
     "ai_prompt": DEFAULT_PROMPT,
@@ -68,6 +69,10 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
     for field in ("visitor_seconds", "ai_seconds", "artist_seconds"):
         _int_range(result, field, 1, 600)
     _int_range(result, "gallery_limit", 1, 1000)
+    fade = result["fade_seconds"]
+    if isinstance(fade, bool) or not isinstance(fade, (int, float)) or not 0 <= fade <= 10:
+        raise SettingsError("fade_seconds", "必須是 0 到 10 之間的秒數")
+    result["fade_seconds"] = round(float(fade), 1)
     _int_range(result, "ai_timeout_seconds", 30, 900)
 
     opacity = result["reference_opacity"]

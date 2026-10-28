@@ -17,6 +17,8 @@ export interface ExhibitionState {
   artwork: ArtworkInfo | null;
   started_at: string | null;
   seconds: number;
+  /** 換段淡入秒數（後臺設定，即時生效）；0 為直接切換 */
+  fade_seconds: number;
   waiting_for_ai: boolean;
   progress: Progress;
 }

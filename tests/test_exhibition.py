@@ -243,3 +243,16 @@ def test_v1_upgrade_backs_up_database_and_keeps_old_records(paths_env):
     db.init_db(conn)
     assert len(list((paths_env.data_dir / "backups").glob("*.sqlite3"))) == 1
     conn.close()
+
+
+def test_fade_seconds_setting_reaches_exhibition_page(client):
+    # 預設 1 秒；後臺修改後下一次輪詢即生效，可到小數一位，0 為直接切換
+    assert client.get("/api/exhibition").json()["fade_seconds"] == 1.0
+    body = client.patch("/api/admin/settings", json={"fade_seconds": 2.25}).json()
+    assert body["settings"]["fade_seconds"] == 2.2
+    assert client.get("/api/exhibition").json()["fade_seconds"] == 2.2
+    assert client.patch("/api/admin/settings", json={"fade_seconds": 0}).json()["settings"]["fade_seconds"] == 0.0
+    for value in (-1, 10.5, True, "1"):
+        response = client.patch("/api/admin/settings", json={"fade_seconds": value})
+        assert response.status_code == 422, value
+        assert response.json()["error"]["details"]["field"] == "fade_seconds"
