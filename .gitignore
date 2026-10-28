@@ -13,6 +13,7 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+runtime/
 
 # 前端
 node_modules/

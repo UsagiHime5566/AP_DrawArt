@@ -2,23 +2,26 @@
 rem AP_DrawArt exhibition launcher entry.
 rem Double-click to start the whole local system in the background; this window closes itself.
 rem Extra arguments are passed to the launcher, e.g. start-exhibition.bat --no-displays
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 
 set "APP_ROOT=%~dp0"
 if "%APP_ROOT:~-1%"=="\" set "APP_ROOT=%APP_ROOT:~0,-1%"
 
-rem Python runtime: bundled package first, then AP_DRAWART_PYTHONW, then the development env.
+rem Python runtime: installed venv, bundled package, explicit override, then the development env.
+set "PYW=%APP_ROOT%\runtime\python\Scripts\pythonw.exe"
+if exist "%PYW%" goto found_python
 set "PYW=%APP_ROOT%\runtime\python\pythonw.exe"
 if exist "%PYW%" goto found_python
 if defined AP_DRAWART_PYTHONW (
     set "PYW=%AP_DRAWART_PYTHONW%"
     if exist "%AP_DRAWART_PYTHONW%" goto found_python
 )
-set "PYW=C:\Users\Chrono\miniconda3\envs\agent-use-latest\pythonw.exe"
+set "PYW=%USERPROFILE%\miniconda3\envs\agent-use-latest\pythonw.exe"
 if exist "%PYW%" goto found_python
 
 echo [AP_DrawArt] Python runtime not found.
-echo Expected: "%APP_ROOT%\runtime\python\pythonw.exe"
+echo Run "%APP_ROOT%\install-environment.bat" first.
+echo Expected: "%APP_ROOT%\runtime\python\Scripts\pythonw.exe"
 pause
 exit /b 1
 
