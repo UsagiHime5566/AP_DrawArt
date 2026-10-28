@@ -15,7 +15,7 @@ from backend.timeutil import parse_iso
 @pytest.fixture(autouse=True)
 def _isolate_playback(monkeypatch):
     """與播放控制器隔離（playback 工作包另行測試）。"""
-    from backend.playback import controller
+    from backend.exhibition import controller
 
     async def _noop() -> None:
         return None
@@ -51,10 +51,11 @@ def no_turnaround(client) -> None:
     assert client.patch("/api/admin/settings", json={"turnaround_seconds": 0}).status_code == 200
 
 
-def test_config_and_create_session(client):
+def test_config_and_create_session(client, paths_env):
     config = client.get("/api/config").json()
     assert config["artwork"]["id"] == 1
-    assert (config["artwork"]["width"], config["artwork"]["height"]) == (1600, 1132)
+    with Image.open(paths_env.base_image) as image:
+        assert (config["artwork"]["width"], config["artwork"]["height"]) == image.size
     assert config["canvas"] == {"width": 1920, "height": 1080}
     assert config["settings"] == {
         "drawing_duration_seconds": 90,
@@ -85,12 +86,13 @@ def test_create_session_conflicts(client):
     assert submit(client, session["id"]).status_code == 200
     response = client.post("/api/sessions", json={})
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "turnaround"
-    assert response.json()["error"]["details"]["next_session_available_at"]
-    assert client.get("/api/sessions/current").json()["next_session_available_at"]
+    assert response.json()["error"]["code"] == "exhibition_locked"
+    assert client.get("/api/sessions/current").json()["next_session_available_at"] is None
 
     with db.connection() as conn:
-        conn.execute("UPDATE sessions SET next_session_available_at = '2000-01-01T00:00:00.000Z'")
+        from test_exhibition import complete_personal
+
+        complete_personal(conn)
     assert client.patch("/api/admin/intake", json={"intake_enabled": False}).status_code == 200
     response = client.post("/api/sessions", json={})
     assert response.status_code == 409
@@ -121,7 +123,7 @@ def test_submit_saves_files_and_queues(client, paths_env):
     assert view["status"] == "submitted"
     assert view["submission"]["queue_ahead"] == 0
     ended = parse_iso(view["ended_at"])
-    assert (parse_iso(view["next_session_available_at"]) - ended).total_seconds() == 10
+    assert (parse_iso(view["next_session_available_at"]) - ended).total_seconds() == 0
 
     submission_id = view["submission"]["id"]
     folder = paths_env.data_dir / "submissions" / submission_id
@@ -248,7 +250,11 @@ def test_abandon(client):
     assert response.json()["error"]["code"] == "session_closed"
 
 
-def test_queue_ahead(client):
+def test_queue_ahead(client, monkeypatch):
+    # 隔離佇列件數計算；完整首播鎖的端到端規則由 test_exhibition 驗證。
+    from backend import exhibition
+
+    monkeypatch.setattr(exhibition, "assert_can_start", lambda _conn: None)
     no_turnaround(client)
     submissions = []
     for index in range(3):

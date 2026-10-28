@@ -5,14 +5,14 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from backend import logclient
+from backend import exhibition, logclient
 from backend.config import ai_provider_name, get_paths, http_port, read_openai_key
 from backend.playback import status as playback_status
 from backend.services import disk, network, state
 from backend.timeutil import now_utc, parse_iso
 
 WORKER_HEARTBEAT_TIMEOUT_SECONDS = 15
-FRONTEND_PAGES = ("draw", "display", "admin")
+FRONTEND_PAGES = ("exhibition", "admin")
 
 
 def _check_database(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -51,8 +51,12 @@ def _check_worker(conn: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _check_displays(conn: sqlite3.Connection) -> dict[str, Any]:
-    roles = playback_status.get_playback_status(conn)["clients"]
-    return {"ok": all(client.get("connected") for client in roles.values()), "roles": roles}
+    view = exhibition.payload(conn)
+    roles = {"exhibition": {
+        "connected": view["connected"], "shown_revision": view["revision"],
+        "last_heartbeat_at": exhibition.load(conn)["last_seen"],
+    }}
+    return {"ok": view["connected"], "roles": roles}
 
 
 def _check_openai_key() -> dict[str, Any]:

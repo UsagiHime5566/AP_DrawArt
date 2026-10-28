@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, Response
 from PIL import Image
 from pydantic import BaseModel
 
-from backend import db
+from backend import db, exhibition
 from backend.api.errors import ApiError
 from backend.config import (
     DISPLAY_ROLES,
@@ -94,7 +94,7 @@ def overview() -> dict[str, Any]:
             "active_session": sessions.session_view(conn, active) if active else None,
             "next_session_available_at": sessions.next_session_available_at(conn),
             "counts": counts,
-            "playback": playback_status.get_playback_status(conn),
+            "playback": exhibition.payload(conn),
             "progress": playback_status.get_progress(conn),
             "settings_version_id": version_id,
         }
@@ -176,7 +176,17 @@ def queues(limit: int = 50) -> dict[str, Any]:
             "server_now": now_iso(),
             "ai_jobs": ai_jobs,
             "playback_items": playback_items,
-            "playback_runs": _playback_runs(conn, limit),
+            "playback_runs": [dict(row) for row in conn.execute(
+                """SELECT r.id, r.playback_item_id, p.receipt_order,
+                          r.started_at AS timing_started_at, r.ended_at, r.result,
+                          r.seconds AS min_display_seconds, r.kind, r.stage
+                   FROM exhibition_segments r JOIN playback_items p ON p.id = r.playback_item_id
+                   ORDER BY r.id DESC LIMIT ?""", (limit,)
+            )],
+            "legacy_playback_runs": _playback_runs(conn, limit),
+            "exhibition_segments": [dict(row) for row in conn.execute(
+                "SELECT * FROM exhibition_segments ORDER BY id DESC LIMIT ?", (limit,)
+            )],
             "sessions": recent_sessions,
         }
 
@@ -258,7 +268,7 @@ def _displays_response(conn: sqlite3.Connection) -> dict[str, Any]:
         "server_now": now_iso(),
         "config": read_displays_config(),
         "monitors": monitors.list_monitors(),
-        "clients": playback_status.get_playback_status(conn)["clients"],
+        "clients": health.get_health(conn)["checks"]["displays"]["roles"],
     }
 
 
@@ -272,7 +282,7 @@ def get_displays() -> dict[str, Any]:
 def patch_displays(patch: dict[str, Any]) -> dict[str, Any]:
     config = read_displays_config()
     for key, value in patch.items():
-        if key in DISPLAY_ROLES:
+        if key in (*DISPLAY_ROLES, "exhibition"):
             monitor = value.get("monitor") if isinstance(value, dict) else None
             if isinstance(monitor, bool) or not isinstance(monitor, int) or monitor < 0:
                 raise ApiError(
@@ -305,12 +315,13 @@ def relaunch_displays() -> dict[str, Any]:
 
 
 @router.post("/exhibition/stop")
-def stop_exhibition() -> dict[str, Any]:
+def stop_exhibition(source: Literal["admin", "escape"] = "admin") -> dict[str, Any]:
     with db.connection() as conn:
         with transaction(conn):
             state.set_intake_enabled(conn, False)
             requests = _set_launcher_request(conn, "shutdown", True)
-    log.info("admin.exhibition_stop", "後臺要求結束展覽，已暫停接待")
+    message = "ESC 五秒內按五次，要求結束展覽" if source == "escape" else "後臺要求結束展覽，已暫停接待"
+    log.info("admin.exhibition_stop", message, source=source)
     return {"server_now": now_iso(), "intake_enabled": False, "launcher_requests": requests}
 
 

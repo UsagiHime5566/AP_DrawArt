@@ -493,10 +493,24 @@ def pb_env(paths_env, monkeypatch):
 @pytest.fixture
 def ws_client(pb_env):
     from fastapi.testclient import TestClient
+    from fastapi import FastAPI
+    from contextlib import asynccontextmanager
+    from backend.api import display, ws
+    from backend.playback import controller
 
-    from backend.app import create_app
+    # 保留 v1 協定作為舊資料／相容模組測試，不使用 v2 的正式應用生命週期。
+    @asynccontextmanager
+    async def legacy_lifespan(_app):
+        await controller.start()
+        try:
+            yield
+        finally:
+            await controller.stop()
 
-    with TestClient(create_app()) as test_client:
+    app = FastAPI(lifespan=legacy_lifespan)
+    app.include_router(display.router)
+    app.include_router(ws.router)
+    with TestClient(app) as test_client:
         yield test_client
 
 

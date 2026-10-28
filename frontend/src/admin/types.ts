@@ -1,6 +1,9 @@
 // 後臺 API 型別，對應 docs/implementation-contract.md 第 6.4、6.5 節。
 
 import type { DisplayRole, IsoTime, Progress, SessionView } from '../shared/types';
+import type { ExhibitionState } from '../exhibition/model';
+
+export type MonitorRole = DisplayRole | 'exhibition';
 
 export interface DisplayClientInfo {
   connected: boolean;
@@ -15,7 +18,7 @@ export interface HealthChecks {
   frontend: { ok: boolean; missing: string[] };
   artwork: { ok: boolean; artwork_id: number | null };
   worker: { ok: boolean; pid: number | null; last_heartbeat_at: IsoTime | null };
-  displays: { ok: boolean; roles: Partial<Record<DisplayRole, DisplayClientInfo>> };
+  displays: { ok: boolean; roles: Partial<Record<MonitorRole, DisplayClientInfo>> };
   disk: {
     ok: boolean;
     free_bytes: number;
@@ -56,13 +59,7 @@ export interface PlaybackPending {
   ready_roles: DisplayRole[];
 }
 
-export interface PlaybackStatus {
-  phase: string;
-  display_revision: number;
-  current: PlaybackCurrent | null;
-  pending: PlaybackPending | null;
-  clients: Partial<Record<DisplayRole, DisplayClientInfo>>;
-}
+export type PlaybackStatus = ExhibitionState;
 
 export interface OverviewCounts {
   ai_queued: number;
@@ -145,6 +142,10 @@ export interface AdminSettings {
   drawing_duration_seconds: number;
   turnaround_seconds: number;
   display_min_seconds: number;
+  visitor_seconds: number;
+  ai_seconds: number;
+  artist_seconds: number;
+  gallery_limit: number;
   reference_opacity: number;
   ai_model: string;
   ai_prompt: string;
@@ -181,6 +182,7 @@ export interface MonitorInfo {
 }
 
 export interface DisplaysConfig {
+  exhibition: { monitor: number };
   visitor: { monitor: number };
   ai: { monitor: number };
   artist: { monitor: number };
@@ -191,7 +193,7 @@ export interface DisplaysResponse {
   server_now: IsoTime;
   config: DisplaysConfig;
   monitors: MonitorInfo[];
-  clients: Partial<Record<DisplayRole, DisplayClientInfo>>;
+  clients: Partial<Record<MonitorRole, DisplayClientInfo>>;
 }
 
 export interface OpenAiKeyStatus {

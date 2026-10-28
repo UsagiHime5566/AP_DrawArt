@@ -1,0 +1,94 @@
+/* AI 生成進度提示（架構 5.6；單螢幕版也用於本人等待 AI 時） */
+
+.progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms var(--ease-out);
+}
+
+.progress--running {
+  opacity: 1;
+}
+
+.progress--finishing {
+  opacity: 0;
+  transition: opacity 600ms var(--ease-out) 400ms;
+}
+
+.progress__label {
+  display: flex;
+  gap: 1.4em;
+  align-items: baseline;
+  padding: 0 0 18px 32px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.progress__queue {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.progress__track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.progress__bar {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.72);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.progress--finishing .progress__bar {
+  transform: scaleX(1) !important;
+  transition: transform 400ms var(--ease-out);
+}
+
+.progress__sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 22%;
+  background: rgba(255, 255, 255, 0.72);
+  opacity: 0;
+}
+
+.progress--indeterminate .progress__bar {
+  opacity: 0;
+}
+
+.progress--indeterminate .progress__sweep {
+  opacity: 1;
+  animation: progress-sweep 3.2s ease-in-out infinite alternate;
+}
+
+@keyframes progress-sweep {
+  from {
+    left: 0;
+  }
+  to {
+    left: 78%;
+  }
+}
+
+/* 結束時一律補滿進度條再淡出（含不定進度狀態） */
+.progress--finishing .progress__bar {
+  opacity: 1;
+}
+
+.progress--finishing .progress__sweep {
+  opacity: 0;
+  animation: none;
+}

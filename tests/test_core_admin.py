@@ -14,7 +14,7 @@ from backend.timeutil import now_iso
 
 FAKE_CLIENTS = {
     role: {"connected": True, "shown_revision": 0, "last_heartbeat_at": None}
-    for role in ("visitor", "ai", "artist")
+    for role in ("exhibition",)
 }
 
 
@@ -22,14 +22,16 @@ FAKE_CLIENTS = {
 def _isolate(monkeypatch):
     """與播放控制器、螢幕列舉隔離（由其他工作包另行測試）。"""
     from backend.platform import monitors
-    from backend.playback import controller
+    from backend.exhibition import controller
     from backend.playback import status as playback_status
+    from backend.services import health
 
     async def _noop() -> None:
         return None
 
     monkeypatch.setattr(controller, "start", _noop)
     monkeypatch.setattr(controller, "stop", _noop)
+    monkeypatch.setattr(health, "_check_displays", lambda _conn: {"ok": True, "roles": FAKE_CLIENTS})
     monkeypatch.setattr(
         playback_status,
         "get_playback_status",
@@ -176,13 +178,13 @@ def test_health_and_openai_key(client, paths_env, monkeypatch):
         "database", "frontend", "artwork", "worker", "displays", "disk", "log", "openai_key",
     }
     assert health["status"] == "degraded"  # 沒有前端建置檔、沒有 Worker 心跳
-    assert health["checks"]["frontend"]["missing"] == ["draw", "display", "admin"]
+    assert health["checks"]["frontend"]["missing"] == ["exhibition", "admin"]
     assert health["checks"]["worker"]["ok"] is False
     assert health["checks"]["openai_key"]["ok"] is True  # fake 供應商
     assert health["launcher_requests"] == {"shutdown": False, "relaunch_displays": False}
     assert all(url.endswith("/admin") for url in health["admin_urls"])
 
-    for page in ("draw", "display", "admin"):
+    for page in ("exhibition", "admin"):
         (paths_env.static_dir / page).mkdir(parents=True, exist_ok=True)
         (paths_env.static_dir / page / "index.html").write_text("<html></html>", encoding="utf-8")
     from backend import db
@@ -190,6 +192,11 @@ def test_health_and_openai_key(client, paths_env, monkeypatch):
 
     with db.connection() as conn:
         state.set(conn, "worker_heartbeat", {"pid": 42, "at": now_iso(), "job_id": None})
+    # 單螢幕展覽頁回報實際顯示後才算已連線
+    revision = client.get("/api/exhibition").json()["revision"]
+    assert client.post(
+        "/api/exhibition/presented", json={"revision": revision, "client_id": "screen", "visible": True}
+    ).status_code == 200
     health = client.get("/api/health").json()
     assert health["status"] == "ok", health["checks"]
     assert health["checks"]["worker"]["pid"] == 42
@@ -212,7 +219,7 @@ def test_displays_config(client, paths_env):
     body = client.get("/api/admin/displays").json()
     assert body["config"]["visitor"] == {"monitor": 0}
     assert body["monitors"][0]["width"] == 1920
-    assert body["clients"]["ai"]["connected"] is True
+    assert body["clients"]["exhibition"]["connected"] is True
 
     body = client.patch("/api/admin/displays", json={"ai": {"monitor": 2}, "artist": {"monitor": 1}}).json()
     assert body["config"]["ai"] == {"monitor": 2} and body["config"]["artist"] == {"monitor": 1}
@@ -242,8 +249,8 @@ def test_overview_and_queues(client):
     assert overview["counts"]["ai_queued"] == 1
     assert overview["counts"]["playback_unplayed"] == 1
     assert overview["active_session"] is None
-    assert overview["next_session_available_at"]
-    assert overview["playback"]["phase"] == "idle"
+    assert overview["next_session_available_at"] is None
+    assert overview["playback"]["mode"] == "personal"
     assert overview["progress"]["active"] is False
     assert overview["settings_version_id"] == 1
     assert overview["health"]["status"] in ("ok", "degraded")
@@ -254,7 +261,7 @@ def test_overview_and_queues(client):
     assert item["status"] == "waiting_for_ai" and item["ai_url"] is None
     assert item["visitor_url"].endswith(f"{view['submission']['id']}/visitor.png?v=1")
     assert queues["sessions"][0]["status"] == "submitted"
-    assert queues["playback_runs"] == []
+    assert queues["playback_runs"][0]["kind"] == "personal"
 
 
 def test_ai_test_endpoint(client, monkeypatch):

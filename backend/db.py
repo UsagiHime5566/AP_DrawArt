@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -52,6 +53,16 @@ def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
 
 def init_db(conn: sqlite3.Connection) -> None:
     """建立資料表並寫入預設值；已有資料時不覆寫。"""
+    old = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('submissions', 'exhibition_segments')"
+    ).fetchall()
+    names = {row[0] for row in old}
+    if names == {"submissions"} and conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]:
+        backup_dir = get_paths().data_dir / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path = backup_dir / f"before-v2-{uuid.uuid4().hex}.sqlite3"
+        with sqlite3.connect(backup_path) as backup_conn:
+            conn.backup(backup_conn)
     for sql_file in sorted(SCHEMA_DIR.glob("*.sql")):
         conn.executescript(sql_file.read_text(encoding="utf-8"))
 

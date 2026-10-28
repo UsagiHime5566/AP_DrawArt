@@ -97,6 +97,8 @@ def _end_session(
     content_sha256: str,
 ) -> None:
     fields = sessions.end_fields(conn, row)
+    if status == "submitted":
+        fields["next_session_available_at"] = fields["ended_at"]
     conn.execute(
         """
         UPDATE sessions SET status = ?, ended_at = ?, end_reason = ?, next_session_available_at = ?,
@@ -113,6 +115,10 @@ def _end_session(
             row["id"],
         ),
     )
+    if status != "submitted":
+        from backend import exhibition
+
+        exhibition.end_without_submission(conn, row["id"])
 
 
 def _close_without_saving(
@@ -282,6 +288,9 @@ def _save_submission(
                 (submission_id, receipt_order, received_at, received_at),
             )
             _end_session(conn, row, "submitted", reason, submission_key, content_sha256)
+            from backend import exhibition
+
+            exhibition.own_submission(conn, session_id, submission_id)
     except _AlreadyClosed:
         shutil.rmtree(final_dir if moved else tmp_dir, ignore_errors=True)
         raise

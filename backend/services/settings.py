@@ -14,7 +14,7 @@ from backend.services import state
 from backend.timeutil import now_iso
 
 DEFAULT_PROMPT = (
-    "這是一位展覽觀眾在平板上用手指快速畫下的作品。請以它為起點，重新創作一幅完整的畫作，"
+    "這是一位展覽觀眾用手寫筆現場畫下的作品。請以它為起點，重新創作一幅完整的畫作，"
     "作為機器對這幅畫的回應。\n"
     "保留原作的主要構圖、形體位置與筆觸的動勢；內容、色彩、材質與畫面表現可以自由詮釋與延伸。\n"
     "即使原作只有零星筆跡，也請由它發展出完整的畫面。\n"
@@ -28,6 +28,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "drawing_duration_seconds": 90,
     "turnaround_seconds": 10,
     "display_min_seconds": 10,
+    "visitor_seconds": 10,
+    "ai_seconds": 10,
+    "artist_seconds": 10,
+    "gallery_limit": 10,
     "reference_opacity": 0.3,
     "ai_model": "gpt-image-2.5-sunburst",
     "ai_prompt": DEFAULT_PROMPT,
@@ -61,6 +65,9 @@ def validate(data: dict[str, Any]) -> dict[str, Any]:
     _int_range(result, "drawing_duration_seconds", 10, 600)
     _int_range(result, "turnaround_seconds", 0, 300)
     _int_range(result, "display_min_seconds", 1, 600)
+    for field in ("visitor_seconds", "ai_seconds", "artist_seconds"):
+        _int_range(result, field, 1, 600)
+    _int_range(result, "gallery_limit", 1, 1000)
     _int_range(result, "ai_timeout_seconds", 30, 900)
 
     opacity = result["reference_opacity"]

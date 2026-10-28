@@ -1,10 +1,54 @@
-# v1.0 既有實作契約（v2.0 遷移前參考）
+# 實作契約（v2.0 單螢幕介面＋v1.0 既有介面）
 
 更新日期：2026-10-28
 
-狀態：本文件保留現有 v1.0 程式的介面與模組約定，供新版遷移對照。最新需求為 [系統架構 v2.0](system-architecture.md) 的單螢幕／手寫筆流程；本文件中的平板、三個展示角色及三螢幕計時不再是新版需求。v2.0 API、共用型別、資料遷移與測試契約，待程式修改階段逐項更新；本次僅完成架構文件確認。
+狀態：第 0 節是已實作的 [系統架構 v2.0](system-architecture.md) 單螢幕／手寫筆介面；第 1 節以後保留 v1.0 的介面與模組約定。兩者衝突時以第 0 節為準。平板頁、三個展示角色、WebSocket 與三螢幕計時已不在 v2.0 流程中使用，程式仍保留供對照，舊網址轉址到 `/exhibition`。
 
-原始依據：[v1.0 架構封存](archive/system-architecture-v1.0.md)。架構文件描述「做什麼」，本文件保存既有版本「怎麼對接」；新需求以 v2.0 架構為準，既有介面需在遷移時明確調整，不能視為已完成新版。
+原始依據：[v1.0 架構封存](archive/system-architecture-v1.0.md)。架構文件描述「做什麼」，本文件規定「怎麼對接」。
+
+## 0. v2.0 單螢幕介面（已實作）
+
+### 0.1 頁面與模組
+
+| 項目 | 位置 | 說明 |
+| --- | --- | --- |
+| 展覽頁 | `/exhibition`（`frontend/src/exhibition/`） | 單一全螢幕頁：輪播、繪圖（內嵌 `src/draw/App`）、本人首播；每 500 毫秒輪詢主機狀態 |
+| 後臺 | `/admin` | 沿用 v1.0，新增三段秒數與 K，監看改為單一展覽頁 |
+| 舊頁面 | `/draw`、`/display/{role}` | 轉址到 `/exhibition` |
+| 狀態機 | `backend/exhibition.py` | 唯一的模式、首播鎖與分段計時來源；由 Web 程序內的 `ExhibitionController` 每 200 毫秒推進 |
+| API | `backend/api/exhibition.py` | 見 0.2 |
+| 分段紀錄 | `backend/schema/30_exhibition.sql` | `exhibition_segments`：每段一筆，`kind` 為 `personal`／`premiere`／`history`，`result` 為 `completed`／`interrupted` |
+
+狀態存在 `runtime_state.exhibition_v2`：`mode`（`gallery`／`drawing`／`personal`）、`stage`（`visitor`／`ai`／`artist`）、`kind`、`item_id`、`owner_submission_id`、`session_id`、`resume_item_id`、`started_at`、`durations`（本件開始時綁定的三段秒數）、`revision`、`client_id`、`last_seen`。
+
+### 0.2 HTTP API
+
+| 方法與路徑 | 說明 |
+| --- | --- |
+| `GET /api/exhibition` | 推進一次狀態並回傳：`revision, mode, stage, kind, can_start, locked, connected, session_id, submission_id, playback_item_id, receipt_order, image_url, failure_text, artwork, started_at, seconds, waiting_for_ai, next_session_available_at, progress` |
+| `POST /api/exhibition/presented` | `{revision, client_id, visible}`：圖片已載入並實際顯示；也當作每 2 秒的心跳。版本不符時忽略；另一個視窗仍在線時回 409 `display_in_use` |
+| `POST /api/sessions` | 一般輪播中的筆尖接觸才呼叫；本人首播未完成時回 409 `exhibition_locked` |
+| `POST /api/admin/exhibition/stop?source=admin\|escape` | 關閉接待並要求啟動器結束；`escape` 為展覽頁五秒內五次 Esc |
+
+### 0.3 規則摘要
+
+- 一般輪播：先播尚未完成首播的舊作品（`premiere`），沒有時循環最近 K 件已播作品（`history`），每件「觀眾 → AI → 原圖」。
+- 筆尖接觸（`pointerType` 為 `pen`，開發時允許滑鼠左鍵）才開始；懸停與移動不觸發。喚醒的那一下不留筆跡。
+- 送出非空白作品後立即進入 `personal`：觀眾段至少滿秒數且 AI 有結果才換段，三段都實際顯示滿秒數才解鎖。解鎖時筆尖仍按著不會開新場。
+- 每段以 `presented` 回報開始計時；超過 8 秒沒有回報或回報不可見時，該段記為 `interrupted` 並從頭重計。
+- 空白、放棄與磁碟捨棄場次回到一般輪播，保留 v1.0 的例外換場秒數（`turnaround_seconds`）。
+- 第一次以 v2.0 開啟已有作品的舊資料庫時，先備份到 `data/backups/before-v2-*.sqlite3`。
+
+### 0.4 設定
+
+`settings` 新增 `visitor_seconds`、`ai_seconds`、`artist_seconds`（預設各 10，1–600）與 `gallery_limit`（K，預設 10，1–1000）。`display_min_seconds` 只供舊流程使用。
+
+### 0.5 五秒內連按五次 Esc 結束展覽
+
+- 展覽頁：以 window 層級攔截 `keydown`，長按的重複事件不計；五秒內湊滿五次時先保存草稿、顯示「對話暫歇。」，再呼叫 `POST /api/admin/exhibition/stop?source=escape`。
+- 展覽頁不進入 HTML5 全螢幕（全螢幕由啟動器的 kiosk 視窗負責），否則瀏覽器會攔下 Esc。
+- 啟動器備援（`launcher/escape_watch.py`）：以 `GetAsyncKeyState` 偵測，只在前景視窗屬於展覽瀏覽器時計數；湊滿五次後等 1.5 秒（讓頁面保存草稿）再結束。Web 服務沒有回應時也能關閉。`--no-displays` 時不啟用。
+- 日誌事件：`admin.exhibition_stop`（`source=escape`）、`system.launcher_escape`。
 
 ## 1. 模組所有權
 

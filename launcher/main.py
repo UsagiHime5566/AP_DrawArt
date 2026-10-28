@@ -14,26 +14,32 @@ import argparse
 import os
 import socket
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.config import DISPLAY_ROLES, Paths, get_paths, http_host, http_port, log_sink_address, read_displays_config
+from backend.config import Paths, get_paths, http_host, http_port, log_sink_address, read_displays_config
 from backend.logclient import get_logger
 from backend.logsink.server import DEFAULT_PORT as DEFAULT_LOG_PORT
 from backend.logsink.server import LogSinkServer
 from backend.platform.monitors import list_monitors
 from launcher import browser
+from launcher.escape_watch import EscapeWatcher
 from launcher.health import HealthClient, frontend_missing, is_ready, pending_requests
 from launcher.processes import ChildSpec, ManagedChild, child_env, console_attached, resolve_child_python
 from launcher.single_instance import SingleInstance, instance_name
 from launcher.status_page import write_status_page
 
 CODE_ROOT = Path(__file__).resolve().parent.parent
+DISPLAY_ROLES = ("exhibition",)
 _HEALTH_INTERVAL = 2.0
 _WINDOW_CHECK_INTERVAL = 5.0
 _WINDOW_LAUNCH_GRACE = 8.0
+# 展覽頁收到五次 Esc 後會先保存草稿再要求結束；啟動器偵測到時稍等再關閉視窗
+_ESCAPE_STOP_DELAY = 1.5
+_EXHIBITION_PIDS_TTL = 3.0
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -90,6 +96,11 @@ class Launcher:
         self.stop_reason: str | None = None
         self.keep_status_windows = False
         self._shut_down = False
+        self.escape_watcher: EscapeWatcher | None = None
+        self.escape_triggered_at: float | None = None
+        self._exhibition_pids: set[int] = set()
+        self._exhibition_pids_at = 0.0
+        self._pids_lock = threading.Lock()
 
     # ---- 進入點 ----
 
@@ -192,7 +203,7 @@ class Launcher:
         if not paths.base_image.is_file():
             self.log.warning("system.preflight", "找不到藝術家原圖 base.webp", path=str(paths.base_image))
 
-        missing = [name for name in ("draw", "display", "admin") if not (paths.static_dir / name / "index.html").is_file()]
+        missing = [name for name in ("exhibition", "admin") if not (paths.static_dir / name / "index.html").is_file()]
         if missing:
             self.log.error(
                 "system.preflight",
@@ -205,7 +216,7 @@ class Launcher:
             if len(monitors) < len(DISPLAY_ROLES):
                 self.log.error(
                     "system.preflight",
-                    f"偵測到 {len(monitors)} 個螢幕，少於展示所需的 3 個",
+                    f"偵測到 {len(monitors)} 個螢幕，找不到展覽螢幕",
                     monitors=len(monitors),
                 )
         self.log.info("system.preflight", "環境檢查完成", python=str(python), static_dir=str(paths.static_dir))
@@ -273,8 +284,13 @@ class Launcher:
     def _supervise(self) -> int:
         next_health = 0.0
         next_window_check = time.monotonic() + _WINDOW_CHECK_INTERVAL
+        self._start_escape_watch()
         while self.stop_reason is None:
             now = time.monotonic()
+            if self.escape_triggered_at is not None and now - self.escape_triggered_at >= _ESCAPE_STOP_DELAY:
+                self.log.info("system.launcher_escape", "展覽螢幕五秒內按下五次 Esc，結束展覽")
+                self.stop_reason = "五秒內按五次 Esc"
+                break
             self._check_children(now)
             if now >= next_health:
                 next_health = now + _HEALTH_INTERVAL
@@ -339,6 +355,34 @@ class Launcher:
             self.log.info("system.launcher_request", "後臺要求重新開啟展示視窗", request=name, cleared=cleared)
             self._open_live_displays(health, force=True)
 
+    # ---- 五秒內五次 Esc ----
+
+    def _start_escape_watch(self) -> None:
+        if self.args.no_displays or self.escape_watcher is not None:
+            return
+        self.escape_watcher = EscapeWatcher(self._is_exhibition_foreground, self._on_escape)
+        if not self.escape_watcher.start():
+            self.escape_watcher = None
+
+    def _is_exhibition_foreground(self, pid: int | None) -> bool:
+        """前景視窗是否為展覽瀏覽器；程序清單快取數秒，避免每次按鍵都掃描全部程序。"""
+        if pid is None or self.display_mode != "live":
+            return False
+        with self._pids_lock:
+            now = time.monotonic()
+            if now - self._exhibition_pids_at > _EXHIBITION_PIDS_TTL:
+                pids: set[int] = set()
+                for window in self.windows.values():
+                    pids.update(process.pid for process in browser.find_profile_processes(window.profile_dir))
+                self._exhibition_pids = pids
+                self._exhibition_pids_at = now
+            return pid in self._exhibition_pids
+
+    def _on_escape(self) -> None:
+        # 在監看執行緒中呼叫；實際結束由主迴圈處理
+        if self.escape_triggered_at is None:
+            self.escape_triggered_at = time.monotonic()
+
     # ---- 展示視窗 ----
 
     def _display_targets(self) -> tuple[Path | None, dict[str, dict[str, Any] | None]]:
@@ -346,7 +390,7 @@ class Launcher:
         browser_path = browser.find_browser(str(config.get("browser") or "auto"), self.paths.root)
         if browser_path is None:
             self.log.error("system.display_browser", "找不到可用的展示瀏覽器", setting=config.get("browser"))
-        assigned, warnings = browser.assign_monitors(config, list_monitors())
+        assigned, warnings = browser.assign_monitors(config, list_monitors(), DISPLAY_ROLES)
         for warning in warnings:
             self.log.warning("system.display_assign", warning)
         return browser_path, assigned
@@ -394,7 +438,7 @@ class Launcher:
             return
         if self.display_mode == "live" and not force:
             return
-        self._open_windows({role: f"{self.base_url}/display/{role}" for role in DISPLAY_ROLES})
+        self._open_windows({"exhibition": f"{self.base_url}/exhibition"})
         self.display_mode = "live"
 
     def _show_status(
@@ -437,6 +481,8 @@ class Launcher:
         if self._shut_down:
             return
         self._shut_down = True
+        if self.escape_watcher is not None:
+            self.escape_watcher.stop()
         reason = self.stop_reason or "啟動器結束"
         if not (self.keep_status_windows and self.display_mode == "status"):
             for window in self.windows.values():

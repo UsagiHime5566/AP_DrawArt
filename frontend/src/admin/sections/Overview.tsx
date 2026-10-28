@@ -3,8 +3,6 @@
 import { Badge, Notice, ProgressBar, Section, type Tone } from '../components';
 import {
   DISPLAY_ROLES,
-  PHASE_LABELS,
-  RESULT_KIND_LABELS,
   ROLE_LABELS,
   formatAgo,
   formatBytes,
@@ -43,7 +41,7 @@ function checkDetail(name: keyof HealthChecks, checks: Partial<HealthChecks>): s
     case 'displays': {
       const roles = checks.displays?.roles ?? {};
       const online = DISPLAY_ROLES.filter((role) => roles[role]?.connected).length;
-      return `${online} / 3 已連線`;
+      return `${online} / 1 已連線`;
     }
     case 'disk': {
       const disk = checks.disk;
@@ -73,13 +71,12 @@ export function Overview(props: { data: OverviewResponse | null }) {
   const checks = data.health.checks ?? {};
   const disk = checks.disk;
   const playback = data.playback;
-  const current = playback?.current ?? null;
-  const pending = playback?.pending ?? null;
+  const current = playback?.playback_item_id ? playback : null;
   const progress = data.progress;
   const counts = data.counts;
 
-  const elapsed = current?.timing_started_at ? secondsSince(current.timing_started_at) : null;
-  const minSeconds = current?.min_display_seconds ?? null;
+  const elapsed = current?.started_at ? secondsSince(current.started_at) : null;
+  const minSeconds = current?.seconds ?? null;
   const aiElapsed = progress?.active ? secondsSince(progress.started_at) : null;
 
   return (
@@ -115,10 +112,10 @@ export function Overview(props: { data: OverviewResponse | null }) {
         })}
       </div>
 
-      <h3 className="adm-subhead">三螢幕連線</h3>
+      <h3 className="adm-subhead">展覽頁連線</h3>
       <div className="adm-grid adm-grid--roles">
         {DISPLAY_ROLES.map((role) => {
-          const client = playback?.clients?.[role] ?? checks.displays?.roles?.[role];
+          const client = checks.displays?.roles?.[role];
           const connected = Boolean(client?.connected);
           return (
             <div key={role} className={`adm-role ${connected ? 'adm-role--on' : 'adm-role--off'}`}>
@@ -137,39 +134,33 @@ export function Overview(props: { data: OverviewResponse | null }) {
           <h3 className="adm-subhead">目前播放</h3>
           <p className="adm-kv">
             <span>階段</span>
-            <strong>{label(PHASE_LABELS, playback?.phase)}</strong>
+            <strong>{playback?.mode === 'drawing' ? '作畫中' : playback?.locked ? '本人首播・輸入鎖定' : '一般輪播'}</strong>
           </p>
           {current ? (
             <>
               <p className="adm-kv">
                 <span>作品</span>
                 <strong>
-                  No.{current.receipt_order}・{label(RESULT_KIND_LABELS, current.result_kind)}
+                  No.{current.receipt_order}・{label({ visitor: '觀眾', ai: 'AI', artist: '原圖' }, current.stage)}
                 </strong>
               </p>
               <p className="adm-kv">
                 <span>展示時間</span>
                 <strong>
-                  {current.played
-                    ? '已達最低時間'
-                    : elapsed === null
-                      ? '等待三螢幕確認'
-                      : `${formatSeconds(elapsed)} / ${minSeconds ?? '—'} 秒`}
+                  {elapsed === null ? '等待畫面顯示確認' : `${formatSeconds(elapsed)} / ${minSeconds ?? '—'} 秒`}
                 </strong>
               </p>
-              {!current.played && elapsed !== null && minSeconds ? (
+              {elapsed !== null && minSeconds ? (
                 <ProgressBar value={elapsed / minSeconds} />
               ) : null}
             </>
           ) : (
             <p className="adm-muted">尚未播放任何作品（待機畫面）。</p>
           )}
-          {pending ? (
+          {playback?.waiting_for_ai ? (
             <p className="adm-kv">
-              <span>下一件</span>
-              <strong>
-                No.{pending.receipt_order}・預載 {pending.ready_roles?.length ?? 0}/3
-              </strong>
+              <span>目前等待</span>
+              <strong>保留本人作品，等待 AI 回話</strong>
             </p>
           ) : null}
         </div>

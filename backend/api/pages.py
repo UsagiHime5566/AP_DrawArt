@@ -35,19 +35,24 @@ def _safe_child(base: Path, relative: str) -> Path:
 
 @router.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
-    return RedirectResponse("/draw")
+    return RedirectResponse("/exhibition")
+
+
+@router.get("/exhibition", include_in_schema=False)
+def exhibition_page() -> FileResponse:
+    return _page("exhibition")
 
 
 @router.get("/draw", include_in_schema=False)
-def draw_page() -> FileResponse:
-    return _page("draw")
+def draw_page() -> RedirectResponse:
+    return RedirectResponse("/exhibition")
 
 
 @router.get("/display/{role}", include_in_schema=False)
-def display_page(role: str) -> FileResponse:
+def display_page(role: str) -> RedirectResponse:
     if role not in DISPLAY_ROLES:
         raise ApiError(404, "not_found", "未知的展示角色")
-    return _page("display")
+    return RedirectResponse("/exhibition")
 
 
 @router.get("/admin", include_in_schema=False)

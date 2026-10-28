@@ -19,10 +19,13 @@ runtime/
 node_modules/
 frontend/dist/
 
-# 交付包建置輸出
-Exhibition/
-dist/
-build/
+# 交付包建置輸出（只限根目錄；Windows 不分大小寫，否則會排除 frontend/exhibition）
+/Exhibition/
+/dist/
+/build/
+
+# 代理工作用的暫存目錄
+.agent-tmp/
 
 # 編輯器與系統檔
 .vscode/

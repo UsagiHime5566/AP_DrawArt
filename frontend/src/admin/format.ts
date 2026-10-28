@@ -2,15 +2,16 @@
 
 import { ApiRequestError, NetworkError } from '../shared/api';
 import { serverNow } from '../shared/clock';
-import type { DisplayRole } from '../shared/types';
+import type { MonitorRole } from './types';
 
-export const ROLE_LABELS: Record<DisplayRole, string> = {
+export const ROLE_LABELS: Record<MonitorRole, string> = {
+  exhibition: '展覽螢幕',
   visitor: '左・觀眾',
   ai: '中・AI',
   artist: '右・藝術家',
 };
 
-export const DISPLAY_ROLES: DisplayRole[] = ['visitor', 'ai', 'artist'];
+export const DISPLAY_ROLES: MonitorRole[] = ['exhibition'];
 
 export const AI_STATUS_LABELS: Record<string, string> = {
   queued: '排隊中',

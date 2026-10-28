@@ -18,11 +18,13 @@ def _bump_mtime(path) -> None:
 
 def test_registers_base_image_once(paths_env, db_conn):
     info = artworks.sync_active_artwork(db_conn)
+    with Image.open(paths_env.base_image) as image:
+        width, height = image.size
     assert info == {
         "id": 1,
         "url": "/media/artworks/1/original.webp?v=1",
-        "width": 1600,
-        "height": 1132,
+        "width": width,
+        "height": height,
     }
     assert (paths_env.data_dir / "artworks/1/original.webp").read_bytes() == (
         paths_env.base_image.read_bytes()

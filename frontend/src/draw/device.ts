@@ -6,13 +6,22 @@ const SESSION_KEY = 'ap-drawart.draw.sessionId';
 const TABLET_KEY = 'ap-drawart.draw.tabletId';
 
 let fullscreenUnsupported = false;
+let fullscreenDisabled = false;
 
 type FullscreenDocument = Document & { webkitFullscreenElement?: Element | null };
 type FullscreenElement = HTMLElement & { webkitRequestFullscreen?: () => void };
 
+/**
+ * 展覽視窗已由啟動器以 kiosk 全螢幕開啟，不再進入 HTML5 全螢幕：
+ * 在 HTML5 全螢幕中，瀏覽器會攔下 Esc 用來離開全螢幕，頁面收不到按鍵。
+ */
+export function disableFullscreenRequests(): void {
+  fullscreenDisabled = true;
+}
+
 /** 請求全螢幕；需在使用者手勢內呼叫，失敗或不支援時直接略過 */
 export function requestFullscreen(): void {
-  if (fullscreenUnsupported) {
+  if (fullscreenUnsupported || fullscreenDisabled) {
     return;
   }
   const doc = document as FullscreenDocument;

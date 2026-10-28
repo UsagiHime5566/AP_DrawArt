@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { apiGet, apiPatch, apiPost } from '../../shared/api';
-import type { DisplayRole } from '../../shared/types';
 import { ActionFeedback, Badge, ConfirmButton, Notice, Section } from '../components';
 import { DISPLAY_ROLES, ROLE_LABELS, describeError, formatAgo } from '../format';
 import { useAction } from '../hooks';
-import type { DisplaysConfig, DisplaysResponse } from '../types';
+import type { DisplaysConfig, DisplaysResponse, MonitorRole } from '../types';
 
 export function Displays() {
   const [data, setData] = useState<DisplaysResponse | null>(null);
@@ -35,7 +34,7 @@ export function Displays() {
   const duplicated = new Set(monitorIndexes).size !== monitorIndexes.length;
   const monitors = data?.monitors ?? [];
 
-  const setMonitor = (role: DisplayRole, monitor: number) => {
+  const setMonitor = (role: MonitorRole, monitor: number) => {
     if (draft) {
       setDraft({ ...draft, [role]: { ...draft[role], monitor } });
       save.clear();
@@ -50,7 +49,7 @@ export function Displays() {
       const response = await apiPatch<DisplaysResponse>('/api/admin/displays', draft);
       setData(response);
       setDraft(response.config);
-      return '已儲存。按「重新定位展示視窗」後才會套用到三個螢幕。';
+      return '已儲存。按「重新定位展示視窗」套用到展覽螢幕。';
     });
 
   const requestRelaunch = () =>
@@ -96,8 +95,8 @@ export function Displays() {
               ))}
             </ul>
           )}
-          {monitors.length > 0 && monitors.length < 3 ? (
-            <Notice tone="bad">只偵測到 {monitors.length} 個螢幕，三個展示角色需要三個獨立螢幕。</Notice>
+          {monitors.length === 0 ? (
+            <Notice tone="warn">尚未偵測到展覽螢幕，請確認 Windows 顯示設定。</Notice>
           ) : null}
 
           <h3 className="adm-subhead">角色對應</h3>
@@ -170,11 +169,11 @@ export function Displays() {
           <ActionFeedback error={save.error} message={save.message} />
 
           <h3 className="adm-subhead">重新定位</h3>
-          <p className="adm-muted adm-small">依目前儲存的對應重新開啟三個展示視窗；播放佇列與計時由主機保留，視窗重開後會重新計算該件的最低展示時間。</p>
+          <p className="adm-muted adm-small">重新開啟單一展覽視窗。主機保留場次與首播鎖，重開後重新計算尚未播完的段落。</p>
           <div className="adm-row">
             <ConfirmButton
               label="重新定位展示視窗"
-              confirmLabel="確定重開三個展示視窗？再按一次"
+              confirmLabel="確定重開展覽視窗？再按一次"
               pending={relaunch.pending}
               onConfirm={() => void requestRelaunch()}
             />

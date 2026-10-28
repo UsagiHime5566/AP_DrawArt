@@ -61,7 +61,7 @@ def session_view(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
 def next_session_available_at(conn: sqlite3.Connection) -> str | None:
     """最近一次換場等待的結束時間；已經過了則回傳 None。"""
     row = conn.execute(
-        "SELECT MAX(next_session_available_at) AS t FROM sessions WHERE status != 'drawing'"
+        "SELECT MAX(next_session_available_at) AS t FROM sessions WHERE status NOT IN ('drawing', 'submitted')"
     ).fetchone()
     value = row["t"]
     if value is None or value <= now_iso():
@@ -84,6 +84,9 @@ def create_session(conn: sqlite3.Connection, tablet_id: str | None) -> sqlite3.R
         raise ApiError(503, "artwork_unavailable", "目前沒有可用的藝術家原圖")
 
     with transaction(conn):
+        from backend import exhibition
+
+        exhibition.assert_can_start(conn)
         active = get_active_row(conn)
         if active is not None:
             raise ApiError(409, "session_active", "已有進行中的場次", {"session_id": active["id"]})
@@ -113,6 +116,7 @@ def create_session(conn: sqlite3.Connection, tablet_id: str | None) -> sqlite3.R
                 to_iso(add_seconds(started, data["drawing_duration_seconds"])),
             ),
         )
+        exhibition.begin_drawing(conn, session_id)
     log.info(
         "session.start",
         f"開始場次，作畫 {data['drawing_duration_seconds']} 秒",
@@ -153,5 +157,8 @@ def abandon_session(conn: sqlite3.Connection, session_id: str, reason: str) -> s
             """,
             (fields["ended_at"], reason, fields["next_session_available_at"], session_id),
         )
+        from backend import exhibition
+
+        exhibition.end_without_submission(conn, session_id)
     log.info("session.abandoned", f"放棄場次（{reason}）", session_id=session_id)
     return get_session_row(conn, session_id)

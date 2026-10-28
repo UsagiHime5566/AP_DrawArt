@@ -66,12 +66,13 @@ def find_browser(
 
 
 def assign_monitors(
-    config: Mapping[str, Any], monitors: list[dict[str, Any]]
+    config: Mapping[str, Any], monitors: list[dict[str, Any]],
+    roles: tuple[str, ...] = DISPLAY_ROLES,
 ) -> tuple[dict[str, dict[str, Any] | None], list[str]]:
     """依設定把左／中／右角色對應到螢幕；設定的螢幕不存在時依角色順序退而求其次。"""
     assigned: dict[str, dict[str, Any] | None] = {}
     warnings: list[str] = []
-    for default_index, role in enumerate(DISPLAY_ROLES):
+    for default_index, role in enumerate(roles):
         role_config = config.get(role) or {}
         wanted = role_config.get("monitor", default_index) if isinstance(role_config, Mapping) else default_index
         monitor = next((item for item in monitors if item.get("index") == wanted), None)

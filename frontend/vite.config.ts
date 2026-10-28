@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 // 多頁建置：draw / display / admin。
 // VITE_PAGES=draw 只建置指定頁面；VITE_OUT_DIR 指定輸出目錄（預設 dist）。
 const ALL_PAGES = {
+  exhibition: 'exhibition/index.html',
   draw: 'draw/index.html',
   display: 'display/index.html',
   admin: 'admin/index.html',
@@ -13,7 +14,7 @@ const ALL_PAGES = {
 type PageName = keyof typeof ALL_PAGES;
 
 const root = fileURLToPath(new URL('.', import.meta.url));
-const pages = (process.env.VITE_PAGES ?? 'draw,display,admin')
+const pages = (process.env.VITE_PAGES ?? 'exhibition,admin')
   .split(',')
   .map((name) => name.trim())
   .filter((name): name is PageName => name in ALL_PAGES);

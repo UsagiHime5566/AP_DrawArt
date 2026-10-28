@@ -103,7 +103,16 @@ function BootScreen({ message }: { message: string }) {
   );
 }
 
-export function App() {
+interface AppProps {
+  embedded?: boolean;
+  onFinished?: (session: SessionView | null) => void;
+  onPreview?: (png: ArrayBuffer) => void;
+  registerSave?: (save: () => Promise<void>) => void;
+}
+
+export function App(props: AppProps = {}) {
+  const propsRef = useRef(props);
+  propsRef.current = props;
   const [phase, setPhaseState] = useState<Phase>({ name: 'boot' });
   const phaseRef = useRef<Phase>(phase);
   const [config, setConfig] = useState<ConfigResponse | null>(null);
@@ -120,6 +129,13 @@ export function App() {
   const [maintenance, setMaintenance] = useState<MaintenanceState>({ open: false, busy: false, message: null });
   const draftRef = useRef<Draft | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    propsRef.current.registerSave?.(async () => {
+      const currentDraft = draftRef.current;
+      if (currentDraft) await putDraft(currentDraft);
+    });
+  }, []);
 
   // 以下函式只使用 ref 與穩定的 setter，舊閉包與新閉包行為相同
   const setPhase = (next: Phase) => {
@@ -143,6 +159,7 @@ export function App() {
     setSubmitNote(null);
     setPhase({ name: 'turnaround', session });
     await deleteDraft(session.id).catch(logDraftError);
+    propsRef.current.onFinished?.(session);
   };
 
   const enterSession = (session: SessionView, draft: Draft) => {
@@ -158,6 +175,7 @@ export function App() {
       return null;
     });
     if (stored) {
+      if (stored.frozen) propsRef.current.onPreview?.(stored.frozen.png);
       enterSession(session, stored);
       return;
     }
@@ -222,6 +240,7 @@ export function App() {
             }
           }
           setPhase({ name: 'standby' });
+          if (propsRef.current.embedded) propsRef.current.onFinished?.(null);
           return;
         } catch (error) {
           if (error instanceof ApiRequestError) {
@@ -443,6 +462,7 @@ export function App() {
       updatedAt: Date.now(),
     };
     draftRef.current = draft;
+    propsRef.current.onPreview?.(png);
     void putDraft(draft)
       .catch(logDraftError)
       .then(() => {

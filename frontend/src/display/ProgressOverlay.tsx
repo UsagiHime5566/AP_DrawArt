@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { serverNow } from '../shared/clock';
 import type { Progress } from '../shared/types';
+import './progress.css';
 
 const MAX_RATIO = 0.95;
 const FINISH_MS = 1_000; // 補滿 400ms ＋ 淡出 600ms

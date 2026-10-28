@@ -7,13 +7,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from backend import db
-from backend.api import admin, display, pages, public, ws
+from backend import db, exhibition
+from backend.api import admin, display, exhibition as exhibition_api, pages, public
 from backend.api.errors import install_error_handlers
 from backend.api.netguard import AdminNetGuardMiddleware
 from backend.config import get_paths, http_port
 from backend.logclient import get_logger
-from backend.playback import controller
 from backend.services import artworks
 
 log = get_logger("web")
@@ -26,11 +25,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         db.init_db(conn)
         artworks.sync_active_artwork(conn)
     log.info("system.web_start", "Web 服務啟動", port=http_port())
-    await controller.start()
+    await exhibition.controller.start()
     try:
         yield
     finally:
-        await controller.stop()
+        await exhibition.controller.stop()
         log.info("system.web_stop", "Web 服務結束")
 
 
@@ -41,6 +40,6 @@ def create_app() -> FastAPI:
     app.include_router(public.router)
     app.include_router(admin.router)
     app.include_router(display.router)
-    app.include_router(ws.router)
+    app.include_router(exhibition_api.router)
     app.include_router(pages.router)
     return app

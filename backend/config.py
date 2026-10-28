@@ -151,6 +151,7 @@ def write_openai_key(api_key: str) -> None:
 
 
 DEFAULT_DISPLAYS_CONFIG: dict[str, Any] = {
+    "exhibition": {"monitor": 0},
     "visitor": {"monitor": 0},
     "ai": {"monitor": 1},
     "artist": {"monitor": 2},
@@ -163,6 +164,8 @@ def read_displays_config() -> dict[str, Any]:
     merged = json.loads(json.dumps(DEFAULT_DISPLAYS_CONFIG))
     if data:
         merged.update(data)
+        if "exhibition" not in data:
+            merged["exhibition"] = data.get("visitor", {"monitor": 0})
     return merged
 
 
