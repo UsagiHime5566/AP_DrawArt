@@ -2,19 +2,21 @@
 
 1. 單一執行個體鎖；第二個執行個體只要求補開展示視窗後結束。
 2. 在程序內啟動集中日誌寫入器，之後所有程序的日誌都經由它寫入 runtime.txt。
-3. 檢查執行環境；致命問題（連線埠被占用等）記錄後以狀態頁說明並結束。
-4. 啟動 Web 與 Worker 子程序，輪詢 /api/health 等待就緒。
-5. 開啟左／中／右三個 kiosk 展示視窗，持續監看子程序、視窗與 launcher_requests。
-6. 收到結束要求或 Ctrl+C 時關閉自有視窗與子程序，作品與佇列保留。
+3. 清除上次未正常結束遺留的程序，再檢查執行環境；致命問題（連線埠被占用等）記錄後以狀態頁說明並結束。
+4. 啟動 Web 與 Worker 子程序（加入工作物件，啟動器被強制結束時一併結束），輪詢 /api/health 等待就緒。
+5. 開啟 kiosk 展覽視窗，持續監看子程序、視窗、launcher_requests 與 stop-exhibition.bat 的結束要求。
+6. 收到結束要求、展覽視窗被正常關閉（Alt+F4）或 Ctrl+C 時關閉自有視窗與子程序，作品與佇列保留。
+
+`python -m launcher --stop`（stop-exhibition.bat）請執行中的啟動器依上述流程結束，沒有回應時強制結束。
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import socket
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,18 +30,29 @@ from backend.platform.monitors import list_monitors
 from launcher import browser
 from launcher.escape_watch import EscapeWatcher
 from launcher.health import HealthClient, frontend_missing, is_ready, pending_requests
-from launcher.processes import ChildSpec, ManagedChild, child_env, console_attached, resolve_child_python
+from launcher.processes import (
+    ChildSpec,
+    KillOnCloseJob,
+    ManagedChild,
+    child_env,
+    console_attached,
+    find_exhibition_processes,
+    launched_module,
+    resolve_child_python,
+    stop_processes,
+)
 from launcher.single_instance import SingleInstance, instance_name
 from launcher.status_page import write_status_page
 
 CODE_ROOT = Path(__file__).resolve().parent.parent
 DISPLAY_ROLES = ("exhibition",)
+STOP_REQUEST_FILE = "launcher-stop.request"
 _HEALTH_INTERVAL = 2.0
-_WINDOW_CHECK_INTERVAL = 5.0
+_WINDOW_CHECK_INTERVAL = 1.0
 _WINDOW_LAUNCH_GRACE = 8.0
 # 展覽頁收到五次 Esc 後會先保存草稿再要求結束；啟動器偵測到時稍等再關閉視窗
 _ESCAPE_STOP_DELAY = 1.5
-_EXHIBITION_PIDS_TTL = 3.0
+_CHILD_NAMES = {"backend": "web", "backend.worker": "worker"}
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -54,7 +67,26 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="集中日誌寫入器連線埠；被占用時改用系統分配的連線埠",
     )
     parser.add_argument("--health-timeout", type=float, default=60.0, help="等待 Web 就緒的秒數")
+    parser.add_argument("--stop", action="store_true", help="結束正在執行的展覽（stop-exhibition.bat 使用）")
+    parser.add_argument("--stop-timeout", type=float, default=30.0, help="--stop 等待正常結束的秒數，逾時強制結束")
     return parser.parse_args(argv)
+
+
+def stop_request_path(paths: Paths) -> Path:
+    """stop-exhibition.bat 留給執行中啟動器的結束要求。"""
+    return paths.tmp_dir / STOP_REQUEST_FILE
+
+
+def _say(message: str) -> None:
+    """有主控台時（stop-exhibition.bat、開發）把結果印給操作的人看。"""
+    if sys.stdout is None:
+        return
+    try:
+        print(message, flush=True)
+    except UnicodeEncodeError:
+        # 輸出被導向舊編碼（例如 cp950）時，無法表示的字元以替代字元顯示，不讓結束流程中斷
+        encoding = sys.stdout.encoding or "ascii"
+        print(message.encode(encoding, "replace").decode(encoding), flush=True)
 
 
 def port_available(host: str, port: int) -> bool:
@@ -74,6 +106,8 @@ class DisplayWindow:
     url: str = ""
     launched_at: float = 0.0
     reopen_count: int = 0
+    spawned_pid: int | None = None
+    watch: browser.ProcessWatch | None = None
 
 
 class Launcher:
@@ -86,8 +120,10 @@ class Launcher:
         self.base_url = f"http://127.0.0.1:{self.port}"
         self.health = HealthClient(self.base_url)
         self.instance = SingleInstance(instance_name(self.paths.data_dir))
+        self.stop_file = stop_request_path(self.paths)
         self.sink: LogSinkServer | None = None
         self.log = get_logger("launcher")
+        self.job: KillOnCloseJob | None = None
         self.children: list[ManagedChild] = []
         self.windows: dict[str, DisplayWindow] = {}
         self.display_mode = "off"  # off / status / live
@@ -98,13 +134,12 @@ class Launcher:
         self._shut_down = False
         self.escape_watcher: EscapeWatcher | None = None
         self.escape_triggered_at: float | None = None
-        self._exhibition_pids: set[int] = set()
-        self._exhibition_pids_at = 0.0
-        self._pids_lock = threading.Lock()
 
     # ---- 進入點 ----
 
     def run(self) -> int:
+        if self.args.stop:
+            return self._run_stop()
         if not self.instance.acquire():
             return self._run_second_instance()
         try:
@@ -128,9 +163,48 @@ class Launcher:
             self.log.info("system.launcher_second_instance", message)
         else:
             self.log.warning("system.launcher_second_instance", "展覽系統已在執行，但目前無法連線到 Web 服務")
-        if sys.stdout is not None:
-            print(message if ok else "展覽系統已在執行，但目前無法連線到 Web 服務")
+        _say(message if ok else "展覽系統已在執行，但目前無法連線到 Web 服務")
         return 0
+
+    def _run_stop(self) -> int:
+        """stop-exhibition.bat：請執行中的啟動器正常結束整個展覽；逾時沒有結束才強制結束。
+
+        這裡的日誌只在啟動器已不在執行時才寫，因此直接寫檔，不經過（已關閉的）集中寫入器。
+        """
+        os.environ.pop("AP_DRAWART_LOG_SINK", None)
+        if self.instance.acquire():
+            # 沒有啟動器在執行：只清除上次被強制結束時可能遺留的程序與視窗
+            try:
+                cleaned = self._cleanup_leftovers(windows=True)
+            finally:
+                self.instance.release()
+            _say("展覽系統目前沒有在執行。" + ("已清除上次遺留的程序。" if cleaned else ""))
+            return 0
+
+        self.stop_file.parent.mkdir(parents=True, exist_ok=True)
+        self.stop_file.write_text(str(os.getpid()), encoding="utf-8")
+        _say("已要求結束展覽，正在收尾。")
+        deadline = time.monotonic() + self.args.stop_timeout
+        while time.monotonic() < deadline:
+            if self.instance.acquire():
+                self.instance.release()
+                _say("展覽已結束。")
+                return 0
+            time.sleep(0.5)
+
+        launchers = find_exhibition_processes(self.paths.data_dir, ("launcher",))
+        stop_processes(launchers)
+        cleaned = self._cleanup_leftovers(windows=True)
+        self.log.warning(
+            "system.launcher_force_stop",
+            f"啟動器 {self.args.stop_timeout:.0f} 秒內沒有結束，已強制結束",
+            launchers=len(launchers),
+            leftovers=cleaned,
+        )
+        with contextlib.suppress(OSError):
+            self.stop_file.unlink(missing_ok=True)
+        _say("啟動器沒有回應，已強制結束展覽。下次可直接重新開展。")
+        return 1
 
     def _run(self) -> int:
         self._start_log_sink()
@@ -142,6 +216,14 @@ class Launcher:
             log_sink=self.sink.address if self.sink else None,
             displays=not self.args.no_displays,
         )
+        # 啟動前的結束要求不執行，避免一開展就被結束
+        with contextlib.suppress(OSError):
+            self.stop_file.unlink(missing_ok=True)
+        self._cleanup_leftovers()
+        try:
+            self.job = KillOnCloseJob()
+        except OSError as error:
+            self.log.warning("system.child_job", f"無法建立工作物件（{error}），啟動器被強制結束時子程序可能殘留")
 
         fatal = self._preflight()
         if fatal:
@@ -174,6 +256,34 @@ class Launcher:
         # 兩次都失敗時改為直接寫檔，至少保留紀錄
         os.environ.pop("AP_DRAWART_LOG_SINK", None)
         self.log.error("system.log_sink_failed", "無法啟動集中日誌寫入器，改由各程序直接寫檔")
+
+    def _cleanup_leftovers(self, windows: bool = False) -> int:
+        """結束上次未正常結束而遺留、仍使用同一份資料的 Web／Worker（與展覽視窗），回傳結束的程序數。
+
+        只在取得單一執行鎖後呼叫：此時沒有其他啟動器，這些程序已無人監看，
+        留著會占用連線埠與資料庫，讓這次無法開展。
+        """
+        try:
+            leftovers = find_exhibition_processes(self.paths.data_dir)
+        except Exception as error:  # noqa: BLE001 - 掃描失敗不阻擋開展
+            self.log.warning("system.leftover_cleanup", f"無法檢查遺留程序：{error}")
+            leftovers = []
+        if leftovers:
+            names = ", ".join(
+                f"{_CHILD_NAMES.get(launched_module(process.info.get('cmdline') or []) or '', '?')}({process.pid})"
+                for process in leftovers
+            )
+            self.log.warning(
+                "system.leftover_cleanup",
+                f"清除上次未正常結束遺留的程序：{names}",
+                pids=[process.pid for process in leftovers],
+            )
+            stop_processes(leftovers)
+        count = len(leftovers)
+        if windows:
+            for role in DISPLAY_ROLES:
+                count += browser.kill_profile_processes(self._profile_dir(role))
+        return count
 
     def _preflight(self) -> list[str]:
         """回傳致命問題（第一項為主要訊息）；非致命問題只寫日誌。"""
@@ -228,7 +338,7 @@ class Launcher:
         has_console = console_attached()
         for name, module in (("web", "backend"), ("worker", "backend.worker")):
             spec = ChildSpec(name=name, args=[python, "-m", module], env=env, cwd=CODE_ROOT)
-            child = ManagedChild(spec=spec, log=self.log, has_console=has_console)
+            child = ManagedChild(spec=spec, log=self.log, has_console=has_console, job=self.job)
             self._start_child(child)
             self.children.append(child)
 
@@ -248,6 +358,8 @@ class Launcher:
     def _wait_until_ready(self) -> None:
         deadline = time.monotonic() + self.args.health_timeout
         while time.monotonic() < deadline:
+            if self._stop_requested():
+                return
             self._check_children(time.monotonic())
             health = self.health.fetch()
             if is_ready(health):
@@ -287,6 +399,8 @@ class Launcher:
         self._start_escape_watch()
         while self.stop_reason is None:
             now = time.monotonic()
+            if self._stop_requested():
+                break
             if self.escape_triggered_at is not None and now - self.escape_triggered_at >= _ESCAPE_STOP_DELAY:
                 self.log.info("system.launcher_escape", "展覽螢幕五秒內按下五次 Esc，結束展覽")
                 self.stop_reason = "五秒內按五次 Esc"
@@ -355,6 +469,16 @@ class Launcher:
             self.log.info("system.launcher_request", "後臺要求重新開啟展示視窗", request=name, cleared=cleared)
             self._open_live_displays(health, force=True)
 
+    def _stop_requested(self) -> bool:
+        """stop-exhibition.bat 是否已留下結束要求；有的話清除並設定結束原因。"""
+        if not self.stop_file.exists():
+            return False
+        with contextlib.suppress(OSError):
+            self.stop_file.unlink(missing_ok=True)
+        self.log.info("system.launcher_request", "stop-exhibition.bat 要求結束展覽", request="stop_file")
+        self.stop_reason = "stop-exhibition.bat 要求結束展覽"
+        return True
+
     # ---- 五秒內五次 Esc ----
 
     def _start_escape_watch(self) -> None:
@@ -365,18 +489,10 @@ class Launcher:
             self.escape_watcher = None
 
     def _is_exhibition_foreground(self, pid: int | None) -> bool:
-        """前景視窗是否為展覽瀏覽器；程序清單快取數秒，避免每次按鍵都掃描全部程序。"""
+        """前景視窗是否屬於正在監看的展覽瀏覽器主程序（視窗由主程序擁有）。"""
         if pid is None or self.display_mode != "live":
             return False
-        with self._pids_lock:
-            now = time.monotonic()
-            if now - self._exhibition_pids_at > _EXHIBITION_PIDS_TTL:
-                pids: set[int] = set()
-                for window in self.windows.values():
-                    pids.update(process.pid for process in browser.find_profile_processes(window.profile_dir))
-                self._exhibition_pids = pids
-                self._exhibition_pids_at = now
-            return pid in self._exhibition_pids
+        return any(window.watch is not None and window.watch.pid == pid for window in list(self.windows.values()))
 
     def _on_escape(self) -> None:
         # 在監看執行緒中呼叫；實際結束由主迴圈處理
@@ -395,14 +511,20 @@ class Launcher:
             self.log.warning("system.display_assign", warning)
         return browser_path, assigned
 
+    def _profile_dir(self, role: str) -> Path:
+        return self.paths.data_dir / "browser-profiles" / role
+
     def _launch_window(self, browser_path: Path, window: DisplayWindow) -> None:
+        # 先放下舊視窗的監看，下面刻意結束它時才不會被當成有人關閉視窗
+        self._forget_window_process(window)
         browser.kill_profile_processes(window.profile_dir)
         command = browser.browser_command(browser_path, window.url, window.profile_dir, window.monitor)
         try:
-            browser.open_window(command)
+            process = browser.open_window(command)
         except OSError as error:
             self.log.error("system.display_window", f"無法開啟 {window.role} 展示視窗：{error}", role=window.role)
             return
+        window.spawned_pid = process.pid
         window.launched_at = time.monotonic()
         monitor = window.monitor
         self.log.info(
@@ -417,9 +539,11 @@ class Launcher:
         browser_path, assigned = self._display_targets()
         if browser_path is None:
             return
-        profiles = self.paths.data_dir / "browser-profiles"
         for role in DISPLAY_ROLES:
-            window = DisplayWindow(role, profiles / role, assigned.get(role), url_for_role[role])
+            previous = self.windows.get(role)
+            if previous is not None:
+                self._forget_window_process(previous)
+            window = DisplayWindow(role, self._profile_dir(role), assigned.get(role), url_for_role[role])
             self.windows[role] = window
             self._launch_window(browser_path, window)
 
@@ -454,26 +578,63 @@ class Launcher:
         self.display_mode = "status"
 
     def _ensure_windows(self, now: float) -> None:
-        """展示視窗被關閉時補開（僅限正式展示畫面）。"""
+        """監看正式展覽視窗：被正常關閉（Alt+F4 等，結束代碼 0）視為結束展覽，當掉或消失則補開。"""
         if self.args.no_displays or self.display_mode != "live":
             return
         browser_path = None
         for window in self.windows.values():
-            if now - window.launched_at < _WINDOW_LAUNCH_GRACE:
-                continue
-            if browser.find_profile_processes(window.profile_dir):
+            settled = now - window.launched_at >= _WINDOW_LAUNCH_GRACE
+            if window.watch is None:
+                window.watch = self._watch_window(window, settled)
+            exit_code: int | None = None
+            if window.watch is not None:
+                exit_code = window.watch.exit_code()
+                if exit_code is None:
+                    continue
+                if exit_code == 0:
+                    self.log.info(
+                        "system.display_window_closed",
+                        f"{window.role} 展覽視窗被關閉（例如 Alt+F4），結束展覽",
+                        role=window.role,
+                    )
+                    self.stop_reason = "展覽視窗被關閉"
+                    return
+            elif not settled:
                 continue
             if browser_path is None:
                 browser_path, _ = self._display_targets()
                 if browser_path is None:
                     return
             window.reopen_count += 1
+            ended = f"異常結束（代碼 {exit_code}）" if exit_code is not None else "已不在執行"
             self.log.warning(
                 "system.display_window_reopen",
-                f"{window.role} 展示視窗已關閉，重新開啟（第 {window.reopen_count} 次）",
+                f"{window.role} 展示視窗{ended}，重新開啟（第 {window.reopen_count} 次）",
                 role=window.role,
+                exit_code=exit_code,
             )
             self._launch_window(browser_path, window)
+
+    def _watch_window(self, window: DisplayWindow, settled: bool) -> browser.ProcessWatch | None:
+        """找到實際顯示視窗的瀏覽器主程序並開始監看；也加入工作物件，啟動器被強制結束時一併關閉。"""
+        try:
+            candidates = [process.pid for process in browser.find_profile_processes(window.profile_dir)]
+            pid = browser.pick_main_process(candidates, window.spawned_pid, settled)
+            if pid is None:
+                return None
+            watch = browser.ProcessWatch(pid)
+        except Exception:  # noqa: BLE001 - 程序剛好結束或無法存取，下次再找
+            return None
+        if self.job is not None:
+            self.job.assign(pid)
+        return watch
+
+    @staticmethod
+    def _forget_window_process(window: DisplayWindow) -> None:
+        if window.watch is not None:
+            window.watch.close()
+            window.watch = None
+        window.spawned_pid = None
 
     # ---- 收尾 ----
 
@@ -484,6 +645,8 @@ class Launcher:
         if self.escape_watcher is not None:
             self.escape_watcher.stop()
         reason = self.stop_reason or "啟動器結束"
+        for window in self.windows.values():
+            self._forget_window_process(window)
         if not (self.keep_status_windows and self.display_mode == "status"):
             for window in self.windows.values():
                 try:
@@ -499,6 +662,8 @@ class Launcher:
                 child=child.spec.name,
                 pid=child.pid,
             )
+        if self.job is not None:
+            self.job.close()
         self.log.info("system.launcher_stop", f"啟動器結束：{reason}")
         if self.sink is not None:
             _flush_log_client()

@@ -318,7 +318,7 @@ def relaunch_displays() -> dict[str, Any]:
 def stop_exhibition(source: Literal["admin", "escape"] = "admin") -> dict[str, Any]:
     with db.connection() as conn:
         with transaction(conn):
-            state.set_intake_enabled(conn, False)
+            state.pause_intake_for_stop(conn)
             requests = _set_launcher_request(conn, "shutdown", True)
     message = "ESC 五秒內按五次，要求結束展覽" if source == "escape" else "後臺要求結束展覽，已暫停接待"
     log.info("admin.exhibition_stop", message, source=source)

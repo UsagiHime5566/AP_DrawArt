@@ -198,7 +198,8 @@ function Invoke-CheckedCommand {{
     $script:Commands.Add(@($Arguments))
     if ($Arguments -contains 'build') {{
         if ({fail_value}) {{ throw 'Simulated build failure' }}
-        foreach ($page in @('draw', 'display', 'admin')) {{
+        # 依安裝腳本指定的 VITE_PAGES 產生頁面，確認它要求的是 v2.0 的展覽與後臺頁
+        foreach ($page in ($env:VITE_PAGES -split ',')) {{
             $pageDir = Join-Path $env:VITE_OUT_DIR $page
             New-Item -ItemType Directory -Path $pageDir -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $pageDir 'index.html') -Value '<html></html>'
@@ -258,4 +259,30 @@ def test_start_bat_selects_installed_and_legacy_runtimes(tmp_path: Path, venv: b
     )
     assert result.returncode == 0, result.stdout + result.stderr
     suffix = b"\\Scripts\\pythonw.exe" if venv else b"\\runtime\\python\\pythonw.exe"
+    assert suffix in result.stdout
+
+
+@pytest.mark.parametrize("venv", [False, True])
+def test_stop_bat_selects_console_python(tmp_path: Path, venv: bool) -> None:
+    root = tmp_path / "展覽 stop with spaces"
+    runtime = root / "runtime" / "python"
+    runtime.mkdir(parents=True)
+    (runtime / "python.exe").touch()
+    if venv:
+        (runtime / "Scripts").mkdir()
+        (runtime / "Scripts" / "python.exe").touch()
+
+    # 結束 BAT 用有主控台的 python.exe 顯示結果；只檢查選擇結果，不實際結束任何程序。
+    source = (PROJECT_ROOT / "stop-exhibition.bat").read_text(encoding="utf-8")
+    prefix = source.replace("\r\n", "\n").split("\n:found_python\n", 1)[0]
+    bat = root / "stop-exhibition.bat"
+    bat.write_text(prefix + "\n:found_python\necho SELECTED=%PY%\nexit /b 0\n", encoding="utf-8")
+    result = subprocess.run(
+        f'cmd.exe /d /s /c ""{bat}""',
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    suffix = b"\\Scripts\\python.exe" if venv else b"\\runtime\\python\\python.exe"
     assert suffix in result.stdout

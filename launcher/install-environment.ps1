@@ -228,7 +228,7 @@ function Install-Frontend {
     $package = Join-Path $frontend 'package.json'
     if (-not (Test-Path -LiteralPath $package -PathType Leaf)) {
         # 已備妥靜態檔案的交付包不必再次安裝前端工具。
-        foreach ($page in @('draw', 'display', 'admin')) {
+        foreach ($page in @('exhibition', 'admin')) {
             if (-not (Test-Path -LiteralPath (Join-Path $CodeRoot "static\$page\index.html") -PathType Leaf)) {
                 throw "Neither frontend source nor built frontend is available: $CodeRoot"
             }
@@ -249,11 +249,11 @@ function Install-Frontend {
     try {
         $env:PATH = (Split-Path -Parent $node) + [IO.Path]::PathSeparator + $env:PATH
         $env:NODE_ENV = 'development'
-        $env:VITE_PAGES = 'draw,display,admin'
+        $env:VITE_PAGES = 'exhibition,admin'
         $env:VITE_OUT_DIR = Join-Path $frontend 'dist'
         Invoke-CheckedCommand -Executable $node -Arguments @($npm, 'ci', '--include=dev', '--no-audit', '--no-fund')
         Invoke-CheckedCommand -Executable $node -Arguments @($npm, 'run', 'build')
-        foreach ($page in @('draw', 'display', 'admin')) {
+        foreach ($page in @('exhibition', 'admin')) {
             if (-not (Test-Path -LiteralPath (Join-Path $frontend "dist\$page\index.html") -PathType Leaf)) {
                 throw "Frontend build did not produce $page/index.html"
             }

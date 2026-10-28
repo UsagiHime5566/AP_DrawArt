@@ -28,7 +28,7 @@
 | `GET /api/exhibition` | 推進一次狀態並回傳：`revision, mode, stage, kind, can_start, locked, connected, session_id, submission_id, playback_item_id, receipt_order, image_url, failure_text, artwork, started_at, seconds, waiting_for_ai, next_session_available_at, progress` |
 | `POST /api/exhibition/presented` | `{revision, client_id, visible}`：圖片已載入並實際顯示；也當作每 2 秒的心跳。版本不符時忽略；另一個視窗仍在線時回 409 `display_in_use` |
 | `POST /api/sessions` | 一般輪播中的筆尖接觸才呼叫；本人首播未完成時回 409 `exhibition_locked` |
-| `POST /api/admin/exhibition/stop?source=admin\|escape` | 關閉接待並要求啟動器結束；`escape` 為展覽頁五秒內五次 Esc |
+| `POST /api/admin/exhibition/stop?source=admin\|escape` | 暫停接待並要求啟動器結束；`escape` 為展覽頁五秒內五次 Esc。這次暫停記在 `runtime_state.intake_paused_for_stop`，下次 Web 啟動時自動恢復接待；結束前工作人員已手動暫停的則維持暫停 |
 
 ### 0.3 規則摘要
 
@@ -49,6 +49,20 @@
 - 展覽頁不進入 HTML5 全螢幕（全螢幕由啟動器的 kiosk 視窗負責），否則瀏覽器會攔下 Esc。
 - 啟動器備援（`launcher/escape_watch.py`）：以 `GetAsyncKeyState` 偵測，只在前景視窗屬於展覽瀏覽器時計數；湊滿五次後等 1.5 秒（讓頁面保存草稿）再結束。Web 服務沒有回應時也能關閉。`--no-displays` 時不啟用。
 - 日誌事件：`admin.exhibition_stop`（`source=escape`）、`system.launcher_escape`。
+
+### 0.6 標準關閉與再次開展
+
+| 方式 | 行為 |
+| --- | --- |
+| 展覽視窗按 Alt+F4（或以其他方式正常關閉） | 啟動器持有瀏覽器主程序的控制代碼；主程序以代碼 0 結束即視為有人關閉視窗，依正常流程結束整個展覽。非 0（當掉、被強制結束）或主程序消失時，照舊在 8 秒啟動緩衝後補開。Edge 啟動程序會把視窗交給另一個主程序後以 0 結束，監看時排除它（`browser.pick_main_process`）。 |
+| `stop-exhibition.bat`（`python -m launcher --stop`） | 在 `data/tmp/launcher-stop.request` 留下結束要求，啟動器每 0.5 秒檢查一次（等待 Web 就緒期間也會檢查），之後依正常流程結束；BAT 等到單一執行鎖釋放才回報完成。`--stop-timeout`（預設 30 秒）內沒有結束時，強制結束啟動器與遺留程序並回傳 1。沒有啟動器在執行時，只清除遺留程序與展覽視窗。 |
+| 五秒內五次 Esc、後臺「結束展覽」 | 見 0.5 與 0.2。 |
+
+為了讓強制結束（工作管理員、當掉、關閉主控台）之後仍能再次開展：
+
+- 啟動器建立 Windows 工作物件（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`），Web、Worker 與正式展覽視窗的瀏覽器主程序加入其中；啟動器一結束，系統就一併結束它們。狀態頁視窗不加入，啟動失敗時仍留在螢幕上說明原因。
+- 取得單一執行鎖後、環境檢查前，先清除使用同一份資料目錄的 `python -m backend`／`python -m backend.worker`（依程序的 `AP_DRAWART_ROOT`／`AP_DRAWART_DATA_DIR` 與工作目錄判斷），避免舊程序占用連線埠或重複處理 AI 工作。
+- 日誌事件：`system.display_window_closed`、`system.display_window_reopen`（含 `exit_code`）、`system.launcher_request`（`request=stop_file`）、`system.leftover_cleanup`、`system.launcher_force_stop`、`system.child_job`。
 
 ## 1. 模組所有權
 
@@ -339,6 +353,7 @@ Worker 心跳：每 5 秒寫入 `runtime_state.worker_heartbeat = {"pid", "at", 
 - 啟動器依架構文件 2.4 的步驟：單一執行個體鎖、在程序內啟動日誌寫入器並設定 `AP_DRAWART_LOG_SINK`、檢查環境、啟動 Web 與 Worker 子程序、輪詢 `/api/health` 等待就緒、依 `config/displays.json` 與 `list_monitors()` 開啟三個全螢幕展示視窗，之後持續監看子程序與 `launcher_requests`。
 - 展示視窗：瀏覽器依設定 `browser`（`auto` 時依序找交付包內瀏覽器、Edge、Chrome），每個角色使用獨立 `--user-data-dir` 與 `--kiosk`、`--window-position`，網址為 `http://127.0.0.1:<port>/display/<role>`。
 - 第二次執行：偵測到既有執行個體時，只要求補開缺少的展示視窗後結束。
+- `stop-exhibition.bat`：同樣以自身所在目錄為基準，改用有主控台的 `python.exe` 執行 `-m launcher --stop`，顯示結果後關閉；詳見第 0.6 節。
 
 ## 12. 前端約定
 

@@ -242,6 +242,19 @@ def test_launcher_requests(client):
     assert client.post("/api/admin/launcher-requests/clear", json={"name": "bogus"}).status_code == 422
 
 
+@pytest.mark.parametrize("paused_by_staff", [False, True])
+def test_intake_paused_by_stop_resumes_on_next_start(paths_env, paused_by_staff):
+    from backend.app import create_app
+
+    with TestClient(create_app()) as first:
+        if paused_by_staff:
+            first.patch("/api/admin/intake", json={"intake_enabled": False})
+        assert first.post("/api/admin/exhibition/stop").json()["intake_enabled"] is False
+    # 結束展覽時為收尾暫停的接待，下次開展自動恢復；工作人員自己暫停的維持暫停
+    with TestClient(create_app()) as second:
+        assert second.get("/api/admin/intake").json()["intake_enabled"] is (not paused_by_staff)
+
+
 def test_overview_and_queues(client):
     view = submit_one(client)
     overview = client.get("/api/admin/overview").json()

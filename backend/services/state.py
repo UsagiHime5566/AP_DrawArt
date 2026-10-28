@@ -2,6 +2,7 @@
 
 已定義的鍵：
 - intake_enabled: bool                         接待開關
+- intake_paused_for_stop: bool                 接待是「結束展覽」時為收尾而暫停，下次啟動自動恢復
 - current_settings_version_id: int            目前設定版本
 - active_artwork_id: int | None                目前啟用原圖
 - base_image_stat: {"mtime_ns", "size"} | None  上次檢查 base.webp 的檔案狀態
@@ -58,4 +59,21 @@ def is_intake_enabled(conn: sqlite3.Connection) -> bool:
 
 
 def set_intake_enabled(conn: sqlite3.Connection, enabled: bool) -> None:
+    """工作人員明確切換接待；之後不再由啟動流程自動恢復。"""
     set(conn, "intake_enabled", bool(enabled))
+    set(conn, "intake_paused_for_stop", False)
+
+
+def pause_intake_for_stop(conn: sqlite3.Connection) -> None:
+    """結束展覽：暫停接待以免收尾期間開新場；原本就暫停的維持工作人員的選擇。"""
+    if is_intake_enabled(conn):
+        set(conn, "intake_enabled", False)
+        set(conn, "intake_paused_for_stop", True)
+
+
+def resume_intake_after_stop(conn: sqlite3.Connection) -> bool:
+    """啟動時恢復上次結束展覽所暫停的接待；回傳是否有恢復。"""
+    if not get(conn, "intake_paused_for_stop", False):
+        return False
+    set_intake_enabled(conn, True)
+    return True

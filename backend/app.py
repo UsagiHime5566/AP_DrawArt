@@ -13,7 +13,7 @@ from backend.api.errors import install_error_handlers
 from backend.api.netguard import AdminNetGuardMiddleware
 from backend.config import get_paths, http_port
 from backend.logclient import get_logger
-from backend.services import artworks
+from backend.services import artworks, state
 
 log = get_logger("web")
 
@@ -23,8 +23,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     get_paths().ensure_dirs()
     with db.connection() as conn:
         db.init_db(conn)
+        with db.transaction(conn):
+            resumed = state.resume_intake_after_stop(conn)
         artworks.sync_active_artwork(conn)
     log.info("system.web_start", "Web 服務啟動", port=http_port())
+    if resumed:
+        log.info("settings.intake_changed", "恢復上次結束展覽時暫停的接待")
     await exhibition.controller.start()
     try:
         yield

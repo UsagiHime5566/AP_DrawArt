@@ -6,13 +6,18 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import subprocess
+import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from backend.config import DISPLAY_ROLES
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
 
 _KIOSK_FLAGS = (
     "--kiosk",
@@ -159,3 +164,74 @@ def open_window(command: list[str]) -> subprocess.Popen:
         stderr=subprocess.DEVNULL,
         close_fds=True,
     )
+
+
+def pick_main_process(candidates: list[int], spawned_pid: int | None, settled: bool) -> int | None:
+    """從專用設定檔的主程序中挑出實際顯示視窗的那一個。
+
+    Edge 的啟動程序會把視窗交給另一個主程序後以代碼 0 結束，不能把它當成視窗；
+    只剩啟動器直接開啟的程序（例如 Chrome）時，要等過了啟動緩衝期仍在執行才採用。
+    """
+    others = [pid for pid in candidates if pid != spawned_pid]
+    if others:
+        return others[0]
+    if candidates and settled:
+        return candidates[0]
+    return None
+
+
+class ProcessWatch:
+    """持有程序控制代碼，程序結束後仍能讀到結束代碼（Windows）。
+
+    瀏覽器被正常關閉（Alt+F4、關閉視窗）時結束代碼為 0，當掉或被強制結束則非 0。
+    其他平台無法取得代碼，結束時一律回報 -1。
+    """
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+        self._handle: int | None = None
+        self._process: Any = None
+        if sys.platform == "win32":
+            kernel32 = _kernel32()
+            handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                raise OSError(f"無法監看程序 {pid}")
+            self._handle = handle
+        else:
+            import psutil
+
+            self._process = psutil.Process(pid)
+
+    def exit_code(self) -> int | None:
+        """仍在執行時回傳 None。"""
+        if self._handle is not None:
+            import ctypes
+            from ctypes import wintypes
+
+            code = wintypes.DWORD()
+            if not _kernel32().GetExitCodeProcess(self._handle, ctypes.byref(code)):
+                return -1
+            return None if code.value == _STILL_ACTIVE else int(code.value)
+        if self._process is not None and self._process.is_running():
+            return None
+        return -1
+
+    def close(self) -> None:
+        if self._handle is not None:
+            _kernel32().CloseHandle(self._handle)
+            self._handle = None
+        self._process = None
+
+
+@functools.cache
+def _kernel32() -> Any:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return kernel32
