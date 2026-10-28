@@ -57,6 +57,7 @@
 | 展覽視窗按 Alt+F4（或以其他方式正常關閉） | 啟動器持有瀏覽器主程序的控制代碼；主程序以代碼 0 結束即視為有人關閉視窗，依正常流程結束整個展覽。非 0（當掉、被強制結束）或主程序消失時，照舊在 8 秒啟動緩衝後補開。Edge 啟動程序會把視窗交給另一個主程序後以 0 結束，監看時排除它（`browser.pick_main_process`）。 |
 | `stop-exhibition.bat`（`python -m launcher --stop`） | 在 `data/tmp/launcher-stop.request` 留下結束要求，啟動器每 0.5 秒檢查一次（等待 Web 就緒期間也會檢查），之後依正常流程結束；BAT 等到單一執行鎖釋放才回報完成。`--stop-timeout`（預設 30 秒）內沒有結束時，強制結束啟動器與遺留程序並回傳 1。沒有啟動器在執行時，只清除遺留程序與展覽視窗。 |
 | 五秒內五次 Esc、後臺「結束展覽」 | 見 0.5 與 0.2。 |
+| 關閉啟動器的主控台視窗 | 見 0.8；依正常流程結束，子程序不等待正常結束。 |
 
 為了讓強制結束（工作管理員、當掉、關閉主控台）之後仍能再次開展：
 
@@ -69,6 +70,23 @@
 - `config/openai.local.json`、`config/displays.json` 接受 UTF-8 BOM 與最後一項後多餘的逗號（記事本常見）。
 - 仍無法解析或不是 JSON 物件時：金鑰視為未設定、螢幕配置改用預設值，服務照常啟動。原因（檔名與行、字位置，不含內容）出現在 `GET /api/health` 的 `checks.openai_key.error`、`GET /api/admin/openai-key` 的 `error`、後臺畫面與啟動器的 `system.preflight` 日誌；在後臺重新設定即覆寫該檔。
 - `/api/health` 的單項檢查出錯時只把該項標為 `{ok: false, error}`，端點本身必須照常回應，否則啟動器會一直判定 Web 未就緒。
+
+### 0.8 啟動器主控台
+
+- `start-exhibition.bat` 以有主控台的 `python.exe`（搜尋順序同 `stop-exhibition.bat`）在自己的主控台視窗執行啟動器（`start "AP_DrawArt"`，避免 Ctrl+C 後出現「終止批次工作」提示）。
+- 畫面（`launcher/console.py`）在背景執行緒每秒原地重畫，只在輸出是互動主控台時顯示，內容包括：
+  - 後臺網址與本機網址；
+  - 系統狀態（含金鑰設定檔錯誤）、展覽模式與段落、接待開關、展覽螢幕連線；
+  - AI Worker 與佇列、作品數、磁碟；
+  - 最近事件。
+
+  資料每 2 秒取自 `GET /api/admin/overview`；最近事件取自程序內日誌寫入器的 `listener`，子程序例外堆疊只留最後的錯誤說明。
+- 寬度以 East Asian W／F／A 為 2 欄計算，只用 ASCII 分隔線，每行截到視窗寬度內。
+- 保留 QuickEdit 讓人能選取複製網址；選取時只有畫面暫停，主迴圈不受影響。
+- 關閉主控台視窗（`CTRL_CLOSE_EVENT`，登出、關機亦同）：設定結束原因「主控台視窗被關閉」，依正常流程收尾，子程序不等待正常結束，須在系統約 5 秒的期限內完成。Ctrl+C 仍為 `KeyboardInterrupt`。
+- 交付機的 `runtime\python\Scripts\python.exe` 是 venv 轉手程式：主控台關閉時它會先被結束，連帶結束實際的啟動器；這時由工作物件一併關閉子程序與展覽視窗，最後幾行日誌可能來不及寫出。
+- 第二次執行 BAT 時，訊息停留 5 秒再關閉；無法開展或啟動器發生未預期錯誤時，畫面停住並等待按 Enter。
+- 程序掃描（遺留程序、展覽視窗）先以 ToolHelp 快照依名稱篩出 python／Chromium 系瀏覽器，再讀命令列，避免程序多時每次掃描數秒。
 
 ## 1. 模組所有權
 
@@ -355,7 +373,7 @@ Worker 心跳：每 5 秒寫入 `runtime_state.worker_heartbeat = {"pid", "at", 
 ## 11. 啟動器與集中日誌寫入器（launcher-logs）
 
 - `python -m backend.logsink [--port 8765]`：TCP 伺服器，接收 `logclient` 送來的 JSON 行，以 `logclient.format_line()` 格式附加寫入 `runtime.txt`，每行寫完即 flush；它是唯一寫入者。
-- `start-exhibition.bat`：以自身所在目錄為基準，尋找 Python（`runtime\python\pythonw.exe`，否則開發用 `C:\Users\Chrono\miniconda3\envs\agent-use-latest\pythonw.exe`），在背景啟動 `-m launcher` 後結束自己的視窗。
+- `start-exhibition.bat`：以自身所在目錄為基準尋找有主控台的 `python.exe`，在自己的主控台視窗執行 `-m launcher`，主控台顯示後臺網址與即時狀態；詳見第 0.8 節。
 - 啟動器依架構文件 2.4 的步驟：單一執行個體鎖、在程序內啟動日誌寫入器並設定 `AP_DRAWART_LOG_SINK`、檢查環境、啟動 Web 與 Worker 子程序、輪詢 `/api/health` 等待就緒、依 `config/displays.json` 與 `list_monitors()` 開啟三個全螢幕展示視窗，之後持續監看子程序與 `launcher_requests`。
 - 展示視窗：瀏覽器依設定 `browser`（`auto` 時依序找交付包內瀏覽器、Edge、Chrome），每個角色使用獨立 `--user-data-dir` 與 `--kiosk`、`--window-position`，網址為 `http://127.0.0.1:<port>/display/<role>`。
 - 第二次執行：偵測到既有執行個體時，只要求補開缺少的展示視窗後結束。

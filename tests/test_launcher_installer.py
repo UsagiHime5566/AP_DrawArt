@@ -241,16 +241,16 @@ def test_start_bat_selects_installed_and_legacy_runtimes(tmp_path: Path, venv: b
     root = tmp_path / "展覽 start with spaces"
     runtime = root / "runtime" / "python"
     runtime.mkdir(parents=True)
-    (runtime / "pythonw.exe").touch()
+    (runtime / "python.exe").touch()
     if venv:
         (runtime / "Scripts").mkdir()
-        (runtime / "Scripts" / "pythonw.exe").touch()
+        (runtime / "Scripts" / "python.exe").touch()
 
-    # 在找到執行檔後輸出選擇結果，不啟動實際背景程序或視窗。
+    # 啟動 BAT 用有主控台的 python.exe（主控台顯示後臺網址與即時狀態）；只檢查選擇結果，不啟動程序或視窗。
     source = (PROJECT_ROOT / "start-exhibition.bat").read_text(encoding="utf-8")
     prefix = source.split("\n:found_python\n", 1)[0]
     bat = root / "start-exhibition.bat"
-    bat.write_text(prefix + "\n:found_python\necho SELECTED=%PYW%\nexit /b 0\n", encoding="utf-8")
+    bat.write_text(prefix + "\n:found_python\necho SELECTED=%PY%\nexit /b 0\n", encoding="utf-8")
     result = subprocess.run(
         f'cmd.exe /d /s /c ""{bat}""',
         capture_output=True,
@@ -258,7 +258,7 @@ def test_start_bat_selects_installed_and_legacy_runtimes(tmp_path: Path, venv: b
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    suffix = b"\\Scripts\\pythonw.exe" if venv else b"\\runtime\\python\\pythonw.exe"
+    suffix = b"\\Scripts\\python.exe" if venv else b"\\runtime\\python\\python.exe"
     assert suffix in result.stdout
 
 

@@ -17,7 +17,9 @@ import contextlib
 import os
 import socket
 import sys
+import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,7 +37,7 @@ from backend.logclient import get_logger
 from backend.logsink.server import DEFAULT_PORT as DEFAULT_LOG_PORT
 from backend.logsink.server import LogSinkServer
 from backend.platform.monitors import list_monitors
-from launcher import browser
+from launcher import browser, console
 from launcher.escape_watch import EscapeWatcher
 from launcher.health import HealthClient, frontend_missing, is_ready, pending_requests
 from launcher.processes import (
@@ -142,6 +144,10 @@ class Launcher:
         self._shut_down = False
         self.escape_watcher: EscapeWatcher | None = None
         self.escape_triggered_at: float | None = None
+        self.dashboard: console.ConsoleDashboard | None = None
+        self.console_closing = False
+        self._console_handler: Any = None
+        self._shutdown_done = threading.Event()
 
     # ---- 進入點 ----
 
@@ -151,12 +157,22 @@ class Launcher:
         if not self.instance.acquire():
             return self._run_second_instance()
         try:
-            return self._run()
+            code = self._run()
         except KeyboardInterrupt:
             self.stop_reason = "收到中斷訊號"
-            return 0
+            code = 0
+        except Exception:
+            self.stop_reason = "啟動器發生未預期的錯誤"
+            self.log.error("system.launcher_crash", "啟動器發生未預期的錯誤，結束展覽", exc=traceback.format_exc())
+            code = 1
         finally:
             self._shutdown()
+        if code != 0 and self.dashboard is not None and not self.console_closing:
+            # 主控台視窗會隨程序結束而關閉；先停住讓現場人員看到原因
+            _say(f"展覽已結束：{self.stop_reason or '無法開展'}。詳細原因請看 logs/runtime.txt。")
+            with contextlib.suppress(EOFError, OSError):
+                input("按 Enter 關閉這個視窗。")
+        return code
 
     def _run_second_instance(self) -> int:
         """展覽已在執行：沿用既有服務與佇列，只要求補開展示視窗。"""
@@ -172,6 +188,10 @@ class Launcher:
         else:
             self.log.warning("system.launcher_second_instance", "展覽系統已在執行，但目前無法連線到 Web 服務")
         _say(message if ok else "展覽系統已在執行，但目前無法連線到 Web 服務")
+        if sys.stdout is not None and sys.stdout.isatty():
+            # 由 BAT 開的主控台會在結束時關閉，留幾秒讓人看到訊息
+            _say("這個視窗 5 秒後自動關閉。")
+            time.sleep(5)
         return 0
 
     def _run_stop(self) -> int:
@@ -215,6 +235,7 @@ class Launcher:
         return 1
 
     def _run(self) -> int:
+        self._start_console()
         self._start_log_sink()
         self.log.info(
             "system.launcher_start",
@@ -235,20 +256,49 @@ class Launcher:
 
         fatal = self._preflight()
         if fatal:
+            self._phase(f"無法開展：{fatal[0]}")
             self._show_status("無法開展", fatal[0], fatal[1:])
             # 狀態頁留在展示螢幕上，供現場人員看到原因
             self.keep_status_windows = True
             return 2
 
         self._start_children()
+        self._phase("等待 Web 服務就緒")
         self._wait_until_ready()
         return self._supervise()
+
+    # ---- 主控台 ----
+
+    def _start_console(self) -> None:
+        """有主控台時顯示即時資訊畫面，並把關閉視窗當成結束展覽。"""
+        if console_attached():
+            self._console_handler = console.install_close_handler(self._on_console_close)
+        if console.prepare_console():
+            self.dashboard = console.ConsoleDashboard(
+                self.port, lambda: self.health.fetch_json("/api/admin/overview")
+            )
+            self.dashboard.start()
+
+    def _phase(self, text: str) -> None:
+        if self.dashboard is not None:
+            self.dashboard.set_phase(text)
+
+    def _on_log_record(self, record: dict[str, Any]) -> None:
+        if self.dashboard is not None:
+            self.dashboard.add_record(record)
+
+    def _on_console_close(self) -> None:
+        """主控台視窗被關閉（或登出、關機）：系統約 5 秒後強制結束本程序，趕在那之前收尾。"""
+        self.console_closing = True
+        if self.stop_reason is None:
+            self.stop_reason = "主控台視窗被關閉"
+        self._shutdown_done.wait(4.5)
 
     # ---- 啟動步驟 ----
 
     def _start_log_sink(self) -> None:
         for port in (self.args.log_port, 0):
-            sink = LogSinkServer("127.0.0.1", port, self.paths.runtime_log)
+            sink = LogSinkServer("127.0.0.1", port, self.paths.runtime_log, listener=self._on_log_record)
             try:
                 sink.start()
             except OSError:
@@ -375,7 +425,7 @@ class Launcher:
     def _wait_until_ready(self) -> None:
         deadline = time.monotonic() + self.args.health_timeout
         while time.monotonic() < deadline:
-            if self._stop_requested():
+            if self.stop_reason is not None or self._stop_requested():
                 return
             self._check_children(time.monotonic())
             health = self.health.fetch()
@@ -388,10 +438,12 @@ class Launcher:
             f"Web 服務在 {self.args.health_timeout:.0f} 秒內未就緒，持續監看並重試",
             port=self.port,
         )
+        self._phase("Web 服務沒有回應，持續重試（詳見 logs/runtime.txt）")
         self._show_status("展覽系統尚未就緒", "Web 服務沒有回應，系統會持續重試。", ["詳細原因請查看 logs/runtime.txt"])
 
     def _on_ready(self, health: dict[str, Any]) -> None:
         self.ready = True
+        self._phase("運作中")
         self.last_health = health
         # 啟動前遺留的要求不執行，避免一開展就被結束
         for name in pending_requests(health):
@@ -666,6 +718,7 @@ class Launcher:
         if self.escape_watcher is not None:
             self.escape_watcher.stop()
         reason = self.stop_reason or "啟動器結束"
+        self._phase(f"正在結束展覽：{reason}")
         for window in self.windows.values():
             self._forget_window_process(window)
         if not (self.keep_status_windows and self.display_mode == "status"):
@@ -674,9 +727,9 @@ class Launcher:
                     browser.kill_profile_processes(window.profile_dir)
                 except Exception:  # noqa: BLE001 - 收尾時盡量繼續
                     pass
-        # 先停 Worker，再停 Web
+        # 先停 Worker，再停 Web；主控台被關閉時只剩幾秒，直接結束
         for child in reversed(self.children):
-            code = child.stop()
+            code = child.stop(graceful_timeout=0.0 if self.console_closing else 8.0)
             self.log.info(
                 "system.child_stop",
                 f"停止子程序 {child.spec.name}（代碼 {code}）",
@@ -690,6 +743,9 @@ class Launcher:
             _flush_log_client()
             self.sink.stop()
         self.instance.release()
+        self._shutdown_done.set()
+        if self.dashboard is not None and not self.console_closing:
+            self.dashboard.stop()
 
 
 def _flush_log_client(timeout: float = 2.0) -> None:

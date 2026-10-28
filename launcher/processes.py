@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -252,6 +252,72 @@ def _job_kernel32() -> Any:
     return kernel32
 
 
+# ---- 程序名稱快照 ----
+
+
+def process_names() -> dict[int, str]:
+    """pid → 執行檔名稱（小寫）。
+
+    Windows 以 ToolHelp 快照一次取得全部，比 psutil 逐一開啟程序查詢快得多（程序多時差好幾秒）；
+    之後只對名稱相符的少數程序讀命令列。
+    """
+    if sys.platform != "win32":
+        import psutil
+
+        return {
+            process.pid: (process.info.get("name") or "").lower()
+            for process in psutil.process_iter(["pid", "name"])
+        }
+    import ctypes
+    from ctypes import wintypes
+
+    class _ProcessEntry(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if not snapshot or snapshot == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), "CreateToolhelp32Snapshot 失敗")
+    names: dict[int, str] = {}
+    try:
+        entry = _ProcessEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            names[int(entry.th32ProcessID)] = entry.szExeFile.lower()
+            more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return names
+
+
+def processes_named(match: Callable[[str], bool]) -> list[Any]:
+    """名稱符合條件的 psutil.Process；名稱以小寫、不含路徑提供。"""
+    import psutil
+
+    found = []
+    for pid, name in process_names().items():
+        if not match(name):
+            continue
+        try:
+            found.append(psutil.Process(pid))
+        except psutil.Error:
+            continue
+    return found
+
+
 # ---- 上次未正常結束遺留的程序 ----
 
 
@@ -288,11 +354,14 @@ def find_exhibition_processes(data_dir: Path, modules: Iterable[str] = CHILD_MOD
     except psutil.Error:
         pass
     found = []
-    for process in psutil.process_iter(["pid", "cmdline"]):
+    # 先以名稱篩出 python 程序再讀命令列；逐一讀取所有程序的命令列要好幾秒
+    for process in processes_named(lambda name: name.startswith("python")):
         if process.pid in own:
             continue
         try:
-            if launched_module(process.info.get("cmdline") or []) not in wanted:
+            cmdline = process.cmdline()
+            process.info = {"pid": process.pid, "cmdline": cmdline}
+            if launched_module(cmdline) not in wanted:
                 continue
             located = process_data_dir(process.environ(), process.cwd())
         except (psutil.Error, OSError):

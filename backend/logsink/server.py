@@ -14,6 +14,7 @@ import socket
 import socketserver
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -121,12 +122,22 @@ class _Server(socketserver.ThreadingTCPServer):
 
 
 class LogSinkServer:
-    """可在程序內啟動的日誌寫入器。port=0 時使用系統分配的連線埠。"""
+    """可在程序內啟動的日誌寫入器。port=0 時使用系統分配的連線埠。
 
-    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT, log_path: Path | None = None) -> None:
+    listener（可選）在寫入執行緒中收到每筆已整理的事件，例如啟動器主控台的「最近事件」。
+    """
+
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = DEFAULT_PORT,
+        log_path: Path | None = None,
+        listener: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self._log_path = log_path
+        self._listener = listener
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._server: _Server | None = None
         self._serve_thread: threading.Thread | None = None
@@ -204,5 +215,10 @@ class LogSinkServer:
                 if handle is not None:
                     handle.close()
                     handle = None
+            if self._listener is not None:
+                try:
+                    self._listener(record)
+                except Exception:  # noqa: BLE001 - 顯示端出錯不能影響寫檔
+                    pass
         if handle is not None:
             handle.close()

@@ -16,6 +16,8 @@ from typing import Any
 
 from backend.config import DISPLAY_ROLES
 
+BROWSER_PROCESS_NAMES = ("msedge", "chrome", "chromium")
+
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _STILL_ACTIVE = 259
 
@@ -117,14 +119,20 @@ def _same_arg(left: str, right: str) -> bool:
 
 
 def find_profile_processes(profile_dir: Path, main_only: bool = True) -> list[Any]:
-    """找出使用指定專用設定檔目錄的瀏覽器程序；main_only 時排除 --type= 子程序。"""
+    """找出使用指定專用設定檔目錄的瀏覽器程序；main_only 時排除 --type= 子程序。
+
+    先以程序名稱篩出 Chromium 系瀏覽器再讀命令列：逐一讀取所有程序的命令列，
+    在程序多的電腦上要好幾秒，會拖慢啟動器每秒一次的視窗監看。
+    """
     import psutil
+
+    from launcher.processes import processes_named
 
     marker = profile_arg(profile_dir)
     found = []
-    for process in psutil.process_iter(["pid", "cmdline"]):
+    for process in processes_named(lambda name: name.removesuffix(".exe") in BROWSER_PROCESS_NAMES):
         try:
-            cmdline = process.info.get("cmdline") or []
+            cmdline = process.cmdline()
         except psutil.Error:
             continue
         if not any(_same_arg(arg, marker) for arg in cmdline):

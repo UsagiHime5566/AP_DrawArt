@@ -8,7 +8,8 @@
 2. 雙擊專案根目錄的 `install-environment.bat`。
 3. 等待四個階段完成：準備 Python、安裝後端套件、檢查後端匯入、安裝與建置前端。
 4. 顯示 `Installation complete` 與 `Ready` 後，雙擊 `start-exhibition.bat` 開展。
-5. 要結束展覽時，在展覽視窗按 Alt+F4，或雙擊 `stop-exhibition.bat`；兩者都會一併關閉 Web 服務與 AI Worker，下次可直接再開展。
+5. 開展後會出現一個主控台視窗，顯示後臺網址（同一網路的手機或電腦開啟）、系統與展覽的即時狀態及最近事件。
+6. 要結束展覽時，在展覽視窗按 Alt+F4、雙擊 `stop-exhibition.bat`，或關閉主控台視窗；都會一併關閉 Web 服務與 AI Worker，下次可直接再開展。
 
 安裝失敗會保留視窗，顯示出錯階段並回傳非零退出碼。詳細安裝紀錄接續寫入 `runtime/install-environment.txt`。修正網路或錯誤原因後，可再次執行同一個 BAT；腳本不刪除作品、資料庫、設定或 `logs/runtime.txt`。
 

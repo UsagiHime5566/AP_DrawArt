@@ -40,8 +40,12 @@ class HealthClient:
         self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def fetch(self, timeout: float = 2.0) -> dict[str, Any] | None:
+        return self.fetch_json("/api/health", timeout)
+
+    def fetch_json(self, path: str, timeout: float = 2.0) -> dict[str, Any] | None:
+        """GET 本機 API；沒有回應或不是 2xx 時回傳 None。"""
         try:
-            with self._opener.open(f"{self.base_url}/api/health", timeout=timeout) as response:
+            with self._opener.open(f"{self.base_url}{path}", timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except (OSError, ValueError, urllib.error.URLError):
             return None
