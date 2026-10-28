@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -121,11 +122,46 @@ def ai_provider_name() -> str:
     return os.environ.get("AP_DRAWART_AI_PROVIDER", "openai")
 
 
+class ConfigFileError(ValueError):
+    """本機設定檔存在但不是有效的 JSON 物件；訊息只含檔名與位置，不含檔案內容（可能是金鑰）。"""
+
+
+# 手動編輯時常見的「最後一項後面多一個逗號」
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
+    """讀取設定檔；不存在時回傳 None，格式錯誤時拋出 ConfigFileError。
+
+    設定檔可能被現場人員用記事本修改，因此接受 UTF-8 BOM 與結尾多餘的逗號。
+    """
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as strict_error:
+        try:
+            data = json.loads(_TRAILING_COMMA.sub(r"\1", text))
+        except json.JSONDecodeError:
+            raise ConfigFileError(
+                f"{path.name} 不是有效的 JSON（第 {strict_error.lineno} 行第 {strict_error.colno} 字）"
+            ) from None
+    if not isinstance(data, dict):
+        raise ConfigFileError(f"{path.name} 的內容必須是 JSON 物件（以大括號包住）")
+    return data
+
+
+def config_file_error(path: Path) -> str | None:
+    """設定檔格式錯誤時回傳原因，供健康檢查、後臺與啟動器日誌顯示；正常或不存在時回傳 None。"""
+    try:
+        _read_json(path)
+    except ConfigFileError as error:
+        return str(error)
+    except OSError as error:
+        return f"{path.name} 無法讀取：{type(error).__name__}"
+    return None
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
@@ -136,11 +172,17 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
 
 
 def read_openai_key() -> tuple[str | None, str | None]:
-    """回傳 (金鑰, 來源)；來源為 "env"、"file" 或 None。"""
+    """回傳 (金鑰, 來源)；來源為 "env"、"file" 或 None。
+
+    金鑰檔格式錯誤時視為未設定，不讓整個服務失敗；原因由 config_file_error 提供。
+    """
     key = os.environ.get("OPENAI_API_KEY")
     if key:
         return key, "env"
-    data = _read_json(get_paths().openai_key_file)
+    try:
+        data = _read_json(get_paths().openai_key_file)
+    except (ConfigFileError, OSError):
+        return None, None
     if data and data.get("api_key"):
         return str(data["api_key"]), "file"
     return None, None
@@ -160,7 +202,11 @@ DEFAULT_DISPLAYS_CONFIG: dict[str, Any] = {
 
 
 def read_displays_config() -> dict[str, Any]:
-    data = _read_json(get_paths().displays_config)
+    """螢幕配置；檔案格式錯誤時改用預設值（原因由 config_file_error 提供）。"""
+    try:
+        data = _read_json(get_paths().displays_config)
+    except (ConfigFileError, OSError):
+        data = None
     merged = json.loads(json.dumps(DEFAULT_DISPLAYS_CONFIG))
     if data:
         merged.update(data)

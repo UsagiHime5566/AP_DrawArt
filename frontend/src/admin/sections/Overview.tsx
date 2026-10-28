@@ -25,6 +25,11 @@ const CHECK_LABELS: Record<keyof HealthChecks, string> = {
 };
 
 function checkDetail(name: keyof HealthChecks, checks: Partial<HealthChecks>): string {
+  // 單項檢查本身出錯時，後端只回 ok=false 與 error
+  const check = checks[name] as { ok?: boolean; error?: string | null } | undefined;
+  if (check && !check.ok && check.error && name !== 'openai_key') {
+    return `檢查失敗：${check.error}`;
+  }
   switch (name) {
     case 'database':
       return checks.database?.ok ? '正常' : '無法存取';
@@ -53,7 +58,10 @@ function checkDetail(name: keyof HealthChecks, checks: Partial<HealthChecks>): s
     case 'log':
       return checks.log?.last_error ? `寫入異常：${checks.log.last_error}` : `正常（${checks.log?.mode ?? '—'}）`;
     case 'openai_key':
-      return checks.openai_key?.ok ? `已設定（${checks.openai_key.source ?? '—'}）` : '尚未設定';
+      if (checks.openai_key?.ok) {
+        return `已設定（${checks.openai_key.source ?? '—'}）`;
+      }
+      return checks.openai_key?.error ? `設定檔格式錯誤：${checks.openai_key.error}` : '尚未設定';
   }
 }
 
@@ -83,7 +91,8 @@ export function Overview(props: { data: OverviewResponse | null }) {
     <Section id="overview" title="狀態總覽">
       {data.health.status === 'setup_required' ? (
         <Notice tone="bad">
-          需要首次設定：尚未設定 OpenAI 金鑰，AI 無法生成。請到 <a href="#openai-key">OpenAI 金鑰</a> 區塊設定。
+          {checks.openai_key?.error ? 'OpenAI 金鑰設定檔格式錯誤' : '需要首次設定：尚未設定 OpenAI 金鑰'}
+          ，AI 無法生成。請到 <a href="#openai-key">OpenAI 金鑰</a> 區塊設定。
         </Notice>
       ) : null}
       {disk?.discarding ? (

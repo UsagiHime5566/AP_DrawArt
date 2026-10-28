@@ -27,7 +27,7 @@ export interface HealthChecks {
     discarding: boolean;
   };
   log: { ok: boolean; mode: string; last_error: string | null };
-  openai_key: { ok: boolean; source: string | null };
+  openai_key: { ok: boolean; source: string | null; error?: string | null };
 }
 
 export interface LauncherRequests {
@@ -199,6 +199,8 @@ export interface DisplaysResponse {
 export interface OpenAiKeyStatus {
   configured: boolean;
   source: 'env' | 'file' | null;
+  /** 金鑰設定檔存在但格式錯誤時的原因（只含位置） */
+  error: string | null;
 }
 
 export interface AiTestResult {

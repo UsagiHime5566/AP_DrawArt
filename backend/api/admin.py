@@ -19,6 +19,7 @@ from backend import db, exhibition
 from backend.api.errors import ApiError
 from backend.config import (
     DISPLAY_ROLES,
+    config_file_error,
     get_paths,
     read_displays_config,
     read_openai_key,
@@ -335,7 +336,9 @@ def clear_launcher_request(body: LauncherRequestBody) -> dict[str, Any]:
 
 def _openai_key_response() -> dict[str, Any]:
     _, source = read_openai_key()
-    return {"server_now": now_iso(), "configured": source is not None, "source": source}
+    # 金鑰檔格式錯誤時告知原因（只含位置，不含內容）；在後臺重新設定即可覆寫
+    error = config_file_error(get_paths().openai_key_file) if source is None else None
+    return {"server_now": now_iso(), "configured": source is not None, "source": source, "error": error}
 
 
 @router.get("/openai-key")

@@ -22,7 +22,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.config import Paths, get_paths, http_host, http_port, log_sink_address, read_displays_config
+from backend.config import (
+    Paths,
+    config_file_error,
+    get_paths,
+    http_host,
+    http_port,
+    log_sink_address,
+    read_displays_config,
+)
 from backend.logclient import get_logger
 from backend.logsink.server import DEFAULT_PORT as DEFAULT_LOG_PORT
 from backend.logsink.server import LogSinkServer
@@ -313,6 +321,15 @@ class Launcher:
         if not paths.base_image.is_file():
             self.log.warning("system.preflight", "找不到藝術家原圖 base.webp", path=str(paths.base_image))
 
+        # 設定檔常被現場手動修改；格式錯誤時服務照常啟動，只在這裡說清楚影響與修正方式
+        for config_path, effect in (
+            (paths.openai_key_file, "視為尚未設定金鑰，請修正檔案或由後臺重新設定金鑰"),
+            (paths.displays_config, "改用預設螢幕配置，請修正檔案或由後臺重新設定"),
+        ):
+            problem = config_file_error(config_path)
+            if problem:
+                self.log.error("system.preflight", f"設定檔格式錯誤：{problem}；{effect}", path=str(config_path))
+
         missing = [name for name in ("exhibition", "admin") if not (paths.static_dir / name / "index.html").is_file()]
         if missing:
             self.log.error(
@@ -388,7 +405,11 @@ class Launcher:
             admin_urls=", ".join(admin_urls) or None,
         )
         if status == "setup_required":
-            self.log.warning("system.setup_required", "尚未完成首次設定，請由同網路裝置開啟後臺設定 OpenAI 金鑰")
+            key_error = ((health.get("checks") or {}).get("openai_key") or {}).get("error")
+            if key_error:
+                self.log.warning("system.setup_required", f"OpenAI 金鑰設定檔格式錯誤（{key_error}），請由後臺重新設定金鑰")
+            else:
+                self.log.warning("system.setup_required", "尚未完成首次設定，請由同網路裝置開啟後臺設定 OpenAI 金鑰")
         self._open_live_displays(health)
 
     # ---- 監看 ----

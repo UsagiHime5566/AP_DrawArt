@@ -37,6 +37,9 @@ export function OpenAiKey() {
       aside={data ? <Badge tone={data.configured ? 'ok' : 'bad'}>{data.configured ? '已設定' : '未設定'}</Badge> : null}
     >
       {status.error ? <Notice tone="warn">讀取失敗：{status.error}</Notice> : null}
+      {data?.error ? (
+        <Notice tone="bad">金鑰設定檔格式錯誤：{data.error}。AI 暫時無法生成；在下方重新設定金鑰即可覆寫這個檔案。</Notice>
+      ) : null}
       {data ? (
         <p className="adm-kv">
           <span>來源</span>

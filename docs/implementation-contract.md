@@ -64,6 +64,12 @@
 - 取得單一執行鎖後、環境檢查前，先清除使用同一份資料目錄的 `python -m backend`／`python -m backend.worker`（依程序的 `AP_DRAWART_ROOT`／`AP_DRAWART_DATA_DIR` 與工作目錄判斷），避免舊程序占用連線埠或重複處理 AI 工作。
 - 日誌事件：`system.display_window_closed`、`system.display_window_reopen`（含 `exit_code`）、`system.launcher_request`（`request=stop_file`）、`system.leftover_cleanup`、`system.launcher_force_stop`、`system.child_job`。
 
+### 0.7 手動編輯的設定檔
+
+- `config/openai.local.json`、`config/displays.json` 接受 UTF-8 BOM 與最後一項後多餘的逗號（記事本常見）。
+- 仍無法解析或不是 JSON 物件時：金鑰視為未設定、螢幕配置改用預設值，服務照常啟動。原因（檔名與行、字位置，不含內容）出現在 `GET /api/health` 的 `checks.openai_key.error`、`GET /api/admin/openai-key` 的 `error`、後臺畫面與啟動器的 `system.preflight` 日誌；在後臺重新設定即覆寫該檔。
+- `/api/health` 的單項檢查出錯時只把該項標為 `{ok: false, error}`，端點本身必須照常回應，否則啟動器會一直判定 Web 未就緒。
+
 ## 1. 模組所有權
 
 每個工作包只修改自己擁有的檔案。需要改動共用檔案或別人的檔案時，不要直接修改，在最終回報中列出需求，由整合者處理。可以在自己的目錄內新增檔案。

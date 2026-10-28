@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from backend import exhibition, logclient
-from backend.config import ai_provider_name, get_paths, http_port, read_openai_key
+from backend.config import ai_provider_name, config_file_error, get_paths, http_port, read_openai_key
 from backend.playback import status as playback_status
 from backend.services import disk, network, state
 from backend.timeutil import now_utc, parse_iso
@@ -63,7 +64,18 @@ def _check_openai_key() -> dict[str, Any]:
     _, source = read_openai_key()
     if ai_provider_name() == "fake":
         return {"ok": True, "source": source or "fake"}
-    return {"ok": source is not None, "source": source}
+    result: dict[str, Any] = {"ok": source is not None, "source": source}
+    if source is None:
+        result["error"] = config_file_error(get_paths().openai_key_file)
+    return result
+
+
+def _run_check(check: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """單項檢查出錯只把該項標為失敗；健康檢查本身必須照常回應，啟動器靠它判斷 Web 是否就緒。"""
+    try:
+        return check()
+    except Exception as error:  # noqa: BLE001 - 任何單項問題都不能讓整個健康檢查失敗
+        return {"ok": False, "error": f"{type(error).__name__}: {error}"}
 
 
 def admin_urls() -> list[str]:
@@ -75,17 +87,17 @@ def get_health(conn: sqlite3.Connection) -> dict[str, Any]:
     log_status = logclient.status()
     checks = {
         "database": _check_database(conn),
-        "frontend": _check_frontend(),
-        "artwork": _check_artwork(conn),
-        "worker": _check_worker(conn),
-        "displays": _check_displays(conn),
-        "disk": disk.disk_status(),
+        "frontend": _run_check(_check_frontend),
+        "artwork": _run_check(lambda: _check_artwork(conn)),
+        "worker": _run_check(lambda: _check_worker(conn)),
+        "displays": _run_check(lambda: _check_displays(conn)),
+        "disk": _run_check(disk.disk_status),
         "log": {
             "ok": log_status["ok"],
             "mode": log_status["mode"],
             "last_error": log_status["last_error"],
         },
-        "openai_key": _check_openai_key(),
+        "openai_key": _run_check(_check_openai_key),
     }
     if not checks["openai_key"]["ok"]:
         overall = "setup_required"
