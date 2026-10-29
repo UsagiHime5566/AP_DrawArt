@@ -36,6 +36,12 @@
 .exhibition-caption span:first-child { color: var(--color-accent-3); }
 /* 進度提示放在說明列上方，避免重疊 */
 .exhibition-stage .progress { bottom: 58px; z-index: 5; }
+/* 進度提示疊在本人的白底筆跡上：改用深色字與洋紅色條，避免白疊白 */
+.exhibition-stage .progress__label { color: var(--color-ink); text-shadow: none; }
+.exhibition-stage .progress__queue { color: rgba(17, 17, 17, .66); }
+.exhibition-stage .progress__track { background: rgba(17, 17, 17, .12); box-shadow: none; }
+.exhibition-stage .progress__bar,
+.exhibition-stage .progress__sweep { background: var(--color-accent-1); }
 .exhibition-wait { position: absolute; right: 28px; bottom: 55px; padding: 10px 18px; background: #000b; color: #fff; border-left: 4px solid var(--color-accent-1); font-size: 20px; }
 .exhibition-notice { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 100; background: #111d; padding: 12px 20px; color: #fff; }
 .exhibition-ending { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; color: #fff; background: #000; font-size: clamp(40px, 5vw, 100px); letter-spacing: .2em; }
